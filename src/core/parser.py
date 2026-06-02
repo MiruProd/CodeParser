@@ -82,7 +82,8 @@ def generate_ascii_tree(node, selected_paths=None, indent=""):
     """Рекурсивно строит ASCII структуру на основе переданных узлов."""
     lines = []
     
-    if selected_paths is not None:
+    # Изменено: проверяем, что selected_paths не пустой, чтобы при пустом выборе возвращать структуру полностью
+    if selected_paths:
         children = [
             c for c in node.children 
             if c.rel_path in selected_paths or (c.is_dir and any(p.startswith(c.rel_path + '/') for p in selected_paths))
