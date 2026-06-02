@@ -1,0 +1,53 @@
+# .github/workflows/release.yml
+
+name: Build and Release Executable
+
+# Запуск сборки происходит только при публикации нового тега версии (например, v1.0.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    # Даем права на запись контента, чтобы экшен мог создавать релиз и загружать exe
+    permissions:
+      contents: write
+
+    steps:
+      # 1. Загрузка исходного кода репозитория
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Установка интерпретатора Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Установка зависимостей проекта и компилятора
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # 4. Сборка EXE-файла через наш Python-скрипт
+      - name: Build Executable
+        run: |
+          python build_scripts/build_exe.py
+
+      # 5. Публикация релиза на GitHub и загрузка собранного EXE-файла
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/CodeParser.exe
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
