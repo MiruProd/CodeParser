@@ -14,7 +14,7 @@ class FileNode:
         self.size = size
         self.children = []
 
-def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whitelist_input_text, manual_input_text):
+def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whitelist_input_text, manual_input_text, output_file_path=None):
     """Обходит проект на диске и возвращает отфильтрованное дерево FileNode."""
     if not os.path.exists(root_dir):
         return None
@@ -38,16 +38,22 @@ def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whi
         is_dir=True
     )
 
+    # Нормализуем путь к файлу выгрузки для надежного сравнения
+    target_out_path = os.path.abspath(output_file_path) if output_file_path else None
+
     def _populate(parent_node, current_path):
         try:
-            # Сортируем: сначала директории, затем файлы по алфавиту для предсказуемости вывода
             items = sorted(os.listdir(current_path), key=lambda x: (not os.path.isdir(os.path.join(current_path, x)), x.lower()))
         except Exception:
-            # Молча пропускаем системные директории и битые символические ссылки
             return
 
         for name in items:
             full_path = os.path.join(current_path, name)
+            
+            # Исключаем файл выгрузки, чтобы избежать рекурсивного накопления данных при повторном анализе
+            if target_out_path and os.path.abspath(full_path) == target_out_path:
+                continue
+
             rel_path = os.path.relpath(full_path, root_dir)
             is_dir = os.path.isdir(full_path)
 
@@ -73,13 +79,10 @@ def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whi
     return root_node
 
 def generate_ascii_tree(node, selected_paths=None, indent=""):
-    """Рекурсивно строит ASCII структуру.
-    Если передан selected_paths, дерево усекается только до выбранных пользователем элементов.
-    """
+    """Рекурсивно строит ASCII структуру на основе переданных узлов."""
     lines = []
     
     if selected_paths is not None:
-        # Отображаем только те узлы, чьи пути (или пути их потомков) выбраны пользователем
         children = [
             c for c in node.children 
             if c.rel_path in selected_paths or (c.is_dir and any(p.startswith(c.rel_path + '/') for p in selected_paths))
@@ -108,19 +111,16 @@ def build_payload(root_dir, root_node, selected_files, selected_paths):
 
     lines = []
     
-    # 1. Структура проекта на основе текущего выбора в GUI
     lines.append("=== ПОЛНАЯ СТРУКТУРА ПРОЕКТА (БЕЗ СИСТЕМНОГО МУСОРА) ===\n")
     lines.append(os.path.basename(root_dir) + "/")
     lines.extend(generate_ascii_tree(root_node, selected_paths))
     lines.append("\n" + "="*80 + "\n\n")
 
-    # 2. XML-подобная разметка содержимого файлов для лучшего понимания контекста LLM
     if selected_files:
         lines.append("=== СОДЕРЖИМОЕ КЛЮЧЕВЫХ ФАЙЛОВ КОДА ===\n\n")
         for file_info in selected_files:
             lines.append(f'<file path="{file_info["rel_path"]}">\n')
             try:
-                # errors='replace' спасает от падения на экзотических или поврежденных кодировках
                 with open(file_info['full_path'], 'r', encoding='utf-8', errors='replace') as f:
                     lines.append(f.read())
             except Exception as e:

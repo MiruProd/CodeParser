@@ -21,7 +21,6 @@ class PackerApp(QMainWindow):
         self.setWindowTitle("CodeParser")
         self.resize(1150, 750)
         
-        # Избегаем проблем с путями к ресурсам внутри скомпилированного PyInstaller EXE
         try:
             from ui.icon_data import ICON_BASE64
             import base64
@@ -207,8 +206,6 @@ class PackerApp(QMainWindow):
 
         return layout
 
-    # --- СЛОТЫ И КЛИЕНТСКАЯ ЛОГИКА ---
-
     def browse_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "Выберите папку проекта")
         if directory:
@@ -221,6 +218,7 @@ class PackerApp(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(self, "Сохранить файл как", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
             self.out_input.setText(file_path)
+            self.reload_tree()
 
     def on_preset_changed(self, preset_name):
         extensions = PRESETS.get(preset_name, "")
@@ -245,10 +243,10 @@ class PackerApp(QMainWindow):
             ignore_binary=self.chk_ignore_binary.isChecked(),
             ignore_lockfiles=self.chk_ignore_lockfiles.isChecked(),
             whitelist_input_text=self.whitelist_input.text(),
-            manual_input_text=self.manual_input.text()
+            manual_input_text=self.manual_input.text(),
+            output_file_path=self.out_input.text().strip()
         )
 
-        # blockSignals предотвращает каскадный вызов триггеров изменения состояния во время перерисовки
         self.tree_widget.blockSignals(True)
         self.tree_widget.clear()
 
@@ -297,13 +295,10 @@ class PackerApp(QMainWindow):
                 'size': child.size
             })
 
-    # --- РАБОТА С ИНТЕРАКТИВНЫМИ ЧЕКБОКСАМИ ---
-
     def on_tree_item_changed(self, item, column):
         if column != 0:
             return
             
-        # blockSignals защищает от бесконечного зацикливания при рекурсивном изменении статуса чекбоксов
         self.tree_widget.blockSignals(True)
         state = item.checkState(0)
         self._update_children_state(item, state)
@@ -355,8 +350,6 @@ class PackerApp(QMainWindow):
         self.tree_widget.blockSignals(False)
         self.update_stats()
 
-    # --- СБОР КОНТЕКСТА И СТАТИСТИКИ ---
-
     def get_selected_files_info(self, item=None):
         if item is None:
             if self.tree_widget.topLevelItemCount() == 0:
@@ -383,8 +376,8 @@ class PackerApp(QMainWindow):
         total_size = sum(f['size'] for f in selected_files)
         total_kb = round(total_size / 1024, 1)
         
-        # Эвристика: ~4 байта на один английский токен (для кириллицы коэффициент выше)
-        estimated_tokens = round(total_size / 4)
+        # Делитель 2.7 учитывает синтаксические конструкции и UTF-8 кодировку кириллицы
+        estimated_tokens = round(total_size / 2.7)
         
         self.lbl_stats.setText(
             f"Выбрано файлов: {len(selected_files)} | "
@@ -394,7 +387,6 @@ class PackerApp(QMainWindow):
     def _generate_payload(self):
         selected_files = self.get_selected_files_info()
         
-        # Строим плоский сет выбранных путей с учетом всех родителей для фильтрации ASCII-дерева
         selected_paths = set()
         for f in selected_files:
             rel_path = f['rel_path']
