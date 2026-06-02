@@ -3,7 +3,14 @@
 import sys
 import os
 
-# Гарантируем корректность относительных импортов при упаковке в EXE через PyInstaller
+if sys.platform == 'win32':
+    import ctypes
+    try:
+        # Гарантируем корректность относительных импортов при упаковке в EXE через PyInstaller
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("miruprod.codeparser.gui.1.0")
+    except Exception:
+        pass
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)

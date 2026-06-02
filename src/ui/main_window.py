@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QStyle, QStatusBar, QHeaderView, QComboBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QPixmap
 
 from core.constants import PRESETS, UNIVERSAL_GLOBAL_EXCLUDES
 from core.parser import scan_directory, build_payload
@@ -18,20 +18,23 @@ from ui.style import get_stylesheet, DARK_PALETTE, LIGHT_PALETTE
 class PackerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NextWG Smart Code Packer")
+        self.setWindowTitle("CodeParser")
         self.resize(1150, 750)
         
-        # Динамическая загрузка векторной иконки приложения
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(script_dir, "icon.svg")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        # Избегаем проблем с путями к ресурсам внутри скомпилированного PyInstaller EXE
+        try:
+            from ui.icon_data import ICON_BASE64
+            import base64
+            pixmap = QPixmap()
+            pixmap.loadFromData(base64.b64decode(ICON_BASE64))
+            self.setWindowIcon(QIcon(pixmap))
+        except Exception:
+            pass
         
-        # Инициализируем тему оформления по умолчанию
         self.setStyleSheet(get_stylesheet(DARK_PALETTE))
 
         self.root_dir = ""
-        self.root_node = None  # Ссылка на распарсенную модель дерева FileNode
+        self.root_node = None
 
         self.init_ui()
 
@@ -40,11 +43,9 @@ class PackerApp(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        # 1. Верхний блок выбора директорий
         paths_group = self._create_paths_group()
         main_layout.addWidget(paths_group)
 
-        # 2. Средний блок со сплиттером
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
         tree_container = self._create_tree_panel()
@@ -56,7 +57,6 @@ class PackerApp(QMainWindow):
         
         main_layout.addWidget(splitter, 1)
 
-        # 3. Нижний блок с кнопками операций
         bottom_layout = self._create_bottom_panel()
         main_layout.addLayout(bottom_layout)
 
@@ -68,7 +68,6 @@ class PackerApp(QMainWindow):
         group = QGroupBox("Директории и сохранение")
         layout = QVBoxLayout(group)
 
-        # Обход исходной директории
         dir_layout = QHBoxLayout()
         dir_layout.addWidget(QLabel("Папка проекта:"))
         self.dir_input = QLineEdit()
@@ -80,7 +79,6 @@ class PackerApp(QMainWindow):
         dir_layout.addWidget(btn_browse)
         layout.addLayout(dir_layout)
 
-        # Выбор выходного TXT
         out_layout = QHBoxLayout()
         out_layout.addWidget(QLabel("Файл сохранения (.txt):"))
         self.out_input = QLineEdit()
@@ -120,7 +118,6 @@ class PackerApp(QMainWindow):
         
         layout.addLayout(toolbar)
 
-        # Дерево проекта на базе QTreeWidget
         self.tree_widget = QTreeWidget()
         self.tree_widget.setColumnCount(2)
         self.tree_widget.setHeaderLabels(["Структура папок и файлов", "Размер"])
@@ -153,7 +150,6 @@ class PackerApp(QMainWindow):
         self.chk_ignore_lockfiles.stateChanged.connect(self.reload_tree)
         filter_layout.addWidget(self.chk_ignore_lockfiles)
 
-        # Выбор расширений
         preset_layout = QHBoxLayout()
         preset_layout.addWidget(QLabel("Пресет расширений:"))
         self.combo_presets = QComboBox()
@@ -162,7 +158,6 @@ class PackerApp(QMainWindow):
         preset_layout.addWidget(self.combo_presets)
         filter_layout.addLayout(preset_layout)
 
-        # Ручные параметры исключений и белых списков
         filter_layout.addWidget(QLabel("Только расширения (через запятую):"))
         self.whitelist_input = QLineEdit()
         self.whitelist_input.setPlaceholderText("Оставьте пустым для отображения всех файлов")
@@ -174,7 +169,6 @@ class PackerApp(QMainWindow):
         self.manual_input.editingFinished.connect(self.reload_tree)
         filter_layout.addWidget(self.manual_input)
 
-        # Интегрированный переключатель тем
         theme_layout = QHBoxLayout()
         theme_layout.addWidget(QLabel("Тема оформления:"))
         self.combo_theme = QComboBox()
@@ -185,7 +179,6 @@ class PackerApp(QMainWindow):
 
         layout.addWidget(filter_group)
 
-        # Окно логирования операций
         log_group = QGroupBox("Лог работы")
         log_layout = QVBoxLayout(log_group)
         self.log_output = QTextEdit()
@@ -246,7 +239,6 @@ class PackerApp(QMainWindow):
 
         self.status_bar.showMessage("Сборка объектного дерева на диске...")
         
-        # Сканируем диск, создавая чистую модель FileNode вне контекста Qt
         self.root_node = scan_directory(
             root_dir=self.root_dir,
             use_gitignore=self.chk_gitignore.isChecked(),
@@ -256,6 +248,7 @@ class PackerApp(QMainWindow):
             manual_input_text=self.manual_input.text()
         )
 
+        # blockSignals предотвращает каскадный вызов триггеров изменения состояния во время перерисовки
         self.tree_widget.blockSignals(True)
         self.tree_widget.clear()
 
@@ -284,7 +277,6 @@ class PackerApp(QMainWindow):
         self.log_output.append(f"Обновлено дерево для: {self.root_dir}")
 
     def _populate_ui_tree(self, parent_item, model_node):
-        """Рекурсивно проецирует чистую модель FileNode на виджеты QTreeWidgetItem."""
         for child in model_node.children:
             item = QTreeWidgetItem(parent_item)
             item.setText(0, child.name)
@@ -311,7 +303,7 @@ class PackerApp(QMainWindow):
         if column != 0:
             return
             
-        # Блокировка сигналов необходима во избежание бесконечного рекурсивного триггера
+        # blockSignals защищает от бесконечного зацикливания при рекурсивном изменении статуса чекбоксов
         self.tree_widget.blockSignals(True)
         state = item.checkState(0)
         self._update_children_state(item, state)
@@ -363,10 +355,9 @@ class PackerApp(QMainWindow):
         self.tree_widget.blockSignals(False)
         self.update_stats()
 
-    # --- СБОРА КОНТЕКСТА И СТАТИСТИКИ ---
+    # --- СБОР КОНТЕКСТА И СТАТИСТИКИ ---
 
     def get_selected_files_info(self, item=None):
-        """Сбор плоского списка метаданных только выбранных пользователем файлов."""
         if item is None:
             if self.tree_widget.topLevelItemCount() == 0:
                 return []
@@ -392,7 +383,7 @@ class PackerApp(QMainWindow):
         total_size = sum(f['size'] for f in selected_files)
         total_kb = round(total_size / 1024, 1)
         
-        # Эвристическая оценка: ~4 байта на один токен для UTF-8 кода на английском языке
+        # Эвристика: ~4 байта на один английский токен (для кириллицы коэффициент выше)
         estimated_tokens = round(total_size / 4)
         
         self.lbl_stats.setText(
@@ -403,13 +394,12 @@ class PackerApp(QMainWindow):
     def _generate_payload(self):
         selected_files = self.get_selected_files_info()
         
-        # Составляем набор относительных путей для обрезки вывода дерева ASCII
+        # Строим плоский сет выбранных путей с учетом всех родителей для фильтрации ASCII-дерева
         selected_paths = set()
         for f in selected_files:
             rel_path = f['rel_path']
             selected_paths.add(rel_path)
             
-            # Вносим родительские папки в набор, иначе усеченное дерево не построится
             parts = rel_path.split('/')
             for i in range(1, len(parts)):
                 selected_paths.add("/".join(parts[:i]))
@@ -421,7 +411,6 @@ class PackerApp(QMainWindow):
         if not payload:
             return
         
-        # Использование встроенного буфера обмена операционной системы
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText(payload)
