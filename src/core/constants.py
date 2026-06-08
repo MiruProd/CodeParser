@@ -18,7 +18,7 @@ BINARY_EXTENSIONS = {
     '.rar', '.7z', '.mp3', '.mp4', '.wav', '.avi', '.mov', 
     '.woff', '.woff2', '.ttf', '.eot', '.otf', '.db', '.sqlite', 
     '.sqlite3', '.dmg', '.iso', '.msi', '.pkg', '.sys', '.cab', 
-    '.psd', '.class', '.pyc', '.o', '.obj', '.so', '.dylib', '.suo'
+    '.psd', '.class', '.pyc', '.o', '.obj', '.so', '.dylib', '.suo', '.svg'
 }
 
 PRESETS = {
