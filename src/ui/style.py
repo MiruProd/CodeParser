@@ -29,14 +29,38 @@ LIGHT_PALETTE = {
 }
 
 def get_stylesheet(palette: dict) -> str:
-    """
-    Генерирует QSS-таблицу стилей на основе переданной семантической палитры.
-    Избавляет от дублирования цветовых кодов и упрощает динамическое переключение тем.
-    """
     return f"""
     QMainWindow, QWidget {{ 
         background-color: {palette['bg_main']}; 
         color: {palette['fg_main']}; 
+    }}
+
+    /* Стилизация верхнего меню и исправление слипания текста */
+    QMenuBar {{
+        background-color: {palette['bg_header']};
+        color: {palette['fg_main']};
+    }}
+    QMenuBar::item:selected {{
+        background-color: {palette['accent_hover']};
+        color: {palette['fg_accent']};
+    }}
+    QMenu {{
+        background-color: {palette['bg_widget']};
+        color: {palette['fg_main']};
+        border: 1px solid {palette['border']};
+    }}
+    QMenu::item {{
+        /* Отступы: верх, право, низ, лево. Увеличен правый отступ для отделения шорткатов */
+        padding: 6px 30px 6px 20px; 
+    }}
+    QMenu::item:selected {{
+        background-color: {palette['accent']};
+        color: {palette['fg_accent']};
+    }}
+    QMenu::separator {{
+        height: 1px;
+        background: {palette['border']};
+        margin: 4px 0px;
     }}
 
     QGroupBox {{ 

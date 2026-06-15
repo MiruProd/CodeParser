@@ -2,7 +2,6 @@
 
 import os
 from .ignore_rules import is_ignored, parse_gitignore
-from .constants import BINARY_EXTENSIONS, BOILERPLATE_LOCKFILES_EXCLUDES
 
 class FileNode:
     """Промежуточная структура для изоляции логики дерева файлов от графической библиотеки."""
@@ -14,8 +13,8 @@ class FileNode:
         self.size = size
         self.children = []
 
-def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whitelist_input_text, manual_input_text, output_file_path=None, gitignore_disabled_rules=None):
-    """Обходит проект на диске и возвращает отфильтрованное дерево FileNode с учетом отключенных правил .gitignore."""
+def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whitelist_input_text, manual_input_text, output_file_path=None, gitignore_disabled_rules=None, binary_extensions=None, lockfiles_excludes=None):
+    """Обходит проект на диске и возвращает отфильтрованное дерево FileNode с учетом всех динамических JSON-правил."""
     if not os.path.exists(root_dir):
         return None
 
@@ -30,9 +29,8 @@ def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whi
 
     manual_excludes = [p.strip() for p in manual_input_text.split(',') if p.strip()]
     
-    if ignore_lockfiles:
-        lockfiles_rules = [p.strip() for p in BOILERPLATE_LOCKFILES_EXCLUDES.split(',') if p.strip()]
-        manual_excludes.extend(lockfiles_rules)
+    if ignore_lockfiles and lockfiles_excludes:
+        manual_excludes.extend(lockfiles_excludes)
         
     whitelist = [ext.strip().lower() for ext in whitelist_input_text.split(',') if ext.strip()]
 
@@ -43,7 +41,6 @@ def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whi
         is_dir=True
     )
 
-    # Нормализуем путь к файлу выгрузки для надежного сравнения
     target_out_path = os.path.abspath(output_file_path) if output_file_path else None
 
     def _populate(parent_node, current_path):
@@ -55,7 +52,6 @@ def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whi
         for name in items:
             full_path = os.path.join(current_path, name)
             
-            # Исключаем файл выгрузки, чтобы избежать рекурсивного накопления данных при повторном анализе
             if target_out_path and os.path.abspath(full_path) == target_out_path:
                 continue
 
@@ -68,7 +64,9 @@ def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whi
             if not is_dir:
                 _, ext = os.path.splitext(name)
                 ext_lower = ext.lower()
-                if ignore_binary and ext_lower in BINARY_EXTENSIONS:
+                
+                # Фильтруем бинарники на основе списка из JSON
+                if ignore_binary and binary_extensions and (ext_lower in binary_extensions):
                     continue
                 if whitelist and ext_lower not in whitelist:
                     continue

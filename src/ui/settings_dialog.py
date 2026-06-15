@@ -9,10 +9,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 class BadgeButton(QPushButton):
-    """
-    Универсальная интерактивная кнопка-чипс для визуального
-    выбора расширений, папок или правил .gitignore.
-    """
     def __init__(self, text, active=True, parent=None):
         super().__init__(text, parent)
         self.item_text = text
@@ -57,14 +53,12 @@ class BadgeButton(QPushButton):
 
 
 class SettingsDialog(QDialog):
-    """Единое интерактивное окно настроек с 4 вкладками (включая гибкую настройку .gitignore)."""
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
         self.setWindowTitle("Настройки CodeParser")
         self.setMinimumSize(600, 500)
         
-        # Гарантируем наличие баз исключений в JSON
         if not self.config_manager.get("all_known_excludes"):
             self.config_manager.set("all_known_excludes", list(self.config_manager.get("global_excludes")))
         if not self.config_manager.get("gitignore_disabled_rules"):
@@ -75,9 +69,7 @@ class SettingsDialog(QDialog):
     def init_ui(self):
         main_layout = QVBoxLayout(self)
 
-        # Контейнер вкладок
         self.tabs = QTabWidget()
-        
         self.tab_general = QWidget()
         self.tab_extensions = QWidget()
         self.tab_excludes = QWidget()
@@ -95,7 +87,6 @@ class SettingsDialog(QDialog):
         
         main_layout.addWidget(self.tabs)
 
-        # Нижняя панель действий
         bottom_layout = QHBoxLayout()
         btn_save = QPushButton("Сохранить настройки")
         btn_save.clicked.connect(self.save_all_settings)
@@ -117,11 +108,11 @@ class SettingsDialog(QDialog):
         self.chk_gitignore.setChecked(self.config_manager.get("use_gitignore"))
         filters_layout.addWidget(self.chk_gitignore)
 
-        self.chk_ignore_binary = QCheckBox("Игнорировать бинарные файлы (изображения, архивы)")
+        self.chk_ignore_binary = QCheckBox("Игнорировать бинарные файлы (изображения, аудио, архивы)")
         self.chk_ignore_binary.setChecked(self.config_manager.get("ignore_binary"))
         filters_layout.addWidget(self.chk_ignore_binary)
 
-        self.chk_ignore_lockfiles = QCheckBox("Игнорировать лок-файлы и автогенерацию")
+        self.chk_ignore_lockfiles = QCheckBox("Игнорировать лок-файлы и файлы автогенерации")
         self.chk_ignore_lockfiles.setChecked(self.config_manager.get("ignore_lockfiles"))
         filters_layout.addWidget(self.chk_ignore_lockfiles)
         
@@ -152,8 +143,16 @@ class SettingsDialog(QDialog):
     def _build_extensions_tab(self):
         layout = QVBoxLayout(self.tab_extensions)
 
+        # Текстовая подсказка для ясности
+        info_label = QLabel(
+            "Выберите файлы, которые нужно выгружать в LLM.\n"
+            "🔵 Синий бадж — расширение СКАНИРУЕТСЯ.\n"
+            "⚪ Серый бадж — расширение ИГНОРИРУЕТСЯ."
+        )
+        layout.addWidget(info_label)
+
         preset_layout = QHBoxLayout()
-        preset_layout.addWidget(QLabel("Пресет расширений:"))
+        preset_layout.addWidget(QLabel("Пресет:"))
         self.combo_presets = QComboBox()
         presets_data = self.config_manager.get("presets", {})
         self.combo_presets.addItems(list(presets_data.keys()))
@@ -184,7 +183,14 @@ class SettingsDialog(QDialog):
 
     def _build_excludes_tab(self):
         layout = QVBoxLayout(self.tab_excludes)
-        layout.addWidget(QLabel("Выберите папки для безусловного исключения из парсинга:"))
+        
+        # Текстовая подсказка для ясности (здесь логика обратная)
+        info_label = QLabel(
+            "Выберите папки, которые нужно безусловно исключить из парсинга.\n"
+            "🔵 Синий бадж — папка ИГНОРИРУЕТСЯ (скрыта).\n"
+            "⚪ Серый бадж — папка СКАНИРУЕТСЯ (видима)."
+        )
+        layout.addWidget(info_label)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -197,7 +203,7 @@ class SettingsDialog(QDialog):
         add_layout = QHBoxLayout()
         self.new_exclude_input = QLineEdit()
         self.new_exclude_input.setPlaceholderText("target, temp, logs, out...")
-        btn_add_exclude = QPushButton("Игнорировать папку")
+        btn_add_exclude = QPushButton("Добавить папку")
         btn_add_exclude.clicked.connect(self.add_custom_exclude)
         add_layout.addWidget(self.new_exclude_input)
         add_layout.addWidget(btn_add_exclude)
@@ -259,12 +265,10 @@ class SettingsDialog(QDialog):
             self.exclude_badges.append(badge)
 
     def populate_gitignore_badges(self):
-        """Парсит .gitignore открытого проекта и выводит его правила чипсами."""
         for b in self.gitignore_badges:
             b.deleteLater()
         self.gitignore_badges.clear()
 
-        # Ищем путь к открытой папке проекта через родительское окно
         root_dir = ""
         if self.parent() and hasattr(self.parent(), "root_dir"):
             root_dir = self.parent().root_dir
@@ -279,12 +283,11 @@ class SettingsDialog(QDialog):
             return
 
         self.lbl_gitignore_info.setText(
-            "Правила из .gitignore вашего проекта.\n"
+            "Правила из .gitignore вашего проекта.\n\n"
             "🔵 Синий бадж — правило АКТИВНО (файлы скрыты).\n"
             "⚪ Серый бадж — правило ОТКЛЮЧЕНО (файлы будут принудительно добавлены в сканирование)."
         )
 
-        # Парсим правила .gitignore
         from core.ignore_rules import parse_gitignore
         rules = parse_gitignore(gitignore_path)
 
@@ -296,7 +299,6 @@ class SettingsDialog(QDialog):
 
         cols = 3
         for idx, rule in enumerate(rules):
-            # Если правило отсутствует в списке отключенных -> оно активно (True)
             is_active = rule not in disabled_rules
             badge = BadgeButton(rule, active=is_active)
             row = idx // cols
@@ -361,24 +363,19 @@ class SettingsDialog(QDialog):
             self.parent().check_for_updates_manual()
 
     def save_all_settings(self):
-        """Сохраняет измененные вкладки настроек в локальный JSON."""
-        # Сохранение общих настроек
         self.config_manager.set("use_gitignore", self.chk_gitignore.isChecked())
         self.config_manager.set("ignore_binary", self.chk_ignore_binary.isChecked())
         self.config_manager.set("ignore_lockfiles", self.chk_ignore_lockfiles.isChecked())
         self.config_manager.set("theme", self.combo_theme.currentText())
         self.config_manager.set("auto_check_updates", self.chk_auto_update.isChecked())
 
-        # Сохранение активных расширений и текущего пресета
         active_exts = [b.item_text for b in self.ext_badges if b.active]
         self.config_manager.set("active_extensions", active_exts)
         self.config_manager.set("selected_preset", self.combo_presets.currentText())
 
-        # Сохранение активных папок-исключений
         active_excludes = [b.item_text for b in self.exclude_badges if b.active]
         self.config_manager.set("global_excludes", active_excludes)
 
-        # Сохранение правил .gitignore, которые юзер сделал неактивными (серыми)
         disabled_rules = [b.item_text for b in self.gitignore_badges if not b.active]
         self.config_manager.set("gitignore_disabled_rules", disabled_rules)
 

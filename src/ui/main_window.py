@@ -16,7 +16,7 @@ from ui.style import get_stylesheet, DARK_PALETTE, LIGHT_PALETTE
 # Интеграция модулей управления
 from core.config_manager import ConfigManager
 from core.watcher import ProjectWatcher
-from core.updater import UpdateCheckerThread, perform_self_update, CURRENT_VERSION
+from core.updater import UpdateCheckerThread, perform_self_update, apply_restart_and_exit, CURRENT_VERSION
 from ui.settings_dialog import SettingsDialog
 
 
@@ -29,7 +29,7 @@ class PackerApp(QMainWindow):
         self.setWindowTitle(f"CodeParser — {CURRENT_VERSION}")
         self.resize(1100, 700)
         
-        # Поддержка перетаскивания файлов
+        # Поддержка перетаскивания папок
         self.setAcceptDrops(True)
         
         try:
@@ -309,9 +309,21 @@ class PackerApp(QMainWindow):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 self.status_bar.showMessage("Скачивание обновления...")
-                success, error_msg = perform_self_update(url)
-                if not success:
-                    QMessageBox.warning(self, "Ошибка обновления", f"Не удалось выполнить обновление: {error_msg}")
+                
+                # Этап 1: Скачиваем ассет и подготавливаем новые файлы
+                success, msg, new_file_path = perform_self_update(url)
+                
+                if success:
+                    # Этап 2: Показываем диалог согласия на перезапуск приложения
+                    QMessageBox.information(
+                        self,
+                        "Обновление готово",
+                        f"{msg}\n\nПрограмма будет автоматически закрыта и перезапущена для завершения установки."
+                    )
+                    # Выполняем фоновую подмену файлов и мгновенно завершаем процесс
+                    apply_restart_and_exit(new_file_path)
+                else:
+                    QMessageBox.warning(self, "Ошибка обновления", f"Не удалось выполнить обновление:\n{msg}")
                     self.status_bar.showMessage("Не удалось обновить приложение.")
         else:
             if not silent:
@@ -332,6 +344,10 @@ class PackerApp(QMainWindow):
         manual_excludes_text = ", ".join(excludes_list)
 
         disabled_rules = self.config_manager.get("gitignore_disabled_rules", [])
+        
+        # Загружаем списки бинарных и лок-файлов из JSON
+        binary_exts = self.config_manager.get("binary_extensions", [])
+        lockfiles_excl = self.config_manager.get("lockfiles_excludes", [])
 
         self.root_node = scan_directory(
             root_dir=self.root_dir,
@@ -341,7 +357,9 @@ class PackerApp(QMainWindow):
             whitelist_input_text=whitelist_text,
             manual_input_text=manual_excludes_text,
             output_file_path=self.out_input.text().strip(),
-            gitignore_disabled_rules=disabled_rules
+            gitignore_disabled_rules=disabled_rules,
+            binary_extensions=binary_exts,
+            lockfiles_excludes=lockfiles_excl
         )
 
         self.tree_widget.blockSignals(True)
