@@ -7,18 +7,24 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QSplitter, QGroupBox, 
     QMessageBox, QStyle, QStatusBar, QHeaderView, QComboBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap
-
-from core.constants import PRESETS, UNIVERSAL_GLOBAL_EXCLUDES
+from core.constants import PRESETS
 from core.parser import scan_directory, build_payload
 from ui.style import get_stylesheet, DARK_PALETTE, LIGHT_PALETTE
+from core.config_manager import ConfigManager
+from core.watcher import ProjectWatcher
+from core.updater import UpdateCheckerThread, perform_self_update, CURRENT_VERSION
+from ui.settings_dialog import SettingsDialog
 
 
 class PackerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CodeParser")
+        # Инициализируем менеджер настроек
+        self.config_manager = ConfigManager()
+        
+        self.setWindowTitle(f"CodeParser — {CURRENT_VERSION}")
         self.resize(1150, 750)
         
         try:
@@ -30,12 +36,27 @@ class PackerApp(QMainWindow):
         except Exception:
             pass
         
-        self.setStyleSheet(get_stylesheet(DARK_PALETTE))
+        # Устанавливаем тему из сохраненной конфигурации
+        theme = self.config_manager.get("theme", "Темная (VS Code)")
+        self.setStyleSheet(get_stylesheet(DARK_PALETTE if "Темная" in theme else LIGHT_PALETTE))
 
         self.root_dir = ""
         self.root_node = None
 
+        # Инициализируем наблюдатель изменений на диске
+        self.watcher = ProjectWatcher()
+        self.watcher.file_changed.connect(self.on_file_changed_event)
+        
+        # Таймер задержки авто-обновления дерева (debounce)
+        self.update_timer = QTimer()
+        self.update_timer.setSingleShot(True)
+        self.update_timer.timeout.connect(self.reload_tree)
+
         self.init_ui()
+
+        # Автоматическая проверка обновлений при запуске
+        if self.config_manager.get("auto_check_updates", True):
+            self.check_for_updates(silent=True)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -135,18 +156,18 @@ class PackerApp(QMainWindow):
         filter_layout = QVBoxLayout(filter_group)
 
         self.chk_gitignore = QCheckBox("Использовать правила .gitignore")
-        self.chk_gitignore.setChecked(True)
-        self.chk_gitignore.stateChanged.connect(self.reload_tree)
+        self.chk_gitignore.setChecked(self.config_manager.get("use_gitignore", True))
+        self.chk_gitignore.stateChanged.connect(self.on_filter_changed)
         filter_layout.addWidget(self.chk_gitignore)
 
-        self.chk_ignore_binary = QCheckBox("Игнорировать бинарные файлы (картинки, архивы и др.)")
-        self.chk_ignore_binary.setChecked(True)
-        self.chk_ignore_binary.stateChanged.connect(self.reload_tree)
+        self.chk_ignore_binary = QCheckBox("Игнорировать бинарные файлы")
+        self.chk_ignore_binary.setChecked(self.config_manager.get("ignore_binary", True))
+        self.chk_ignore_binary.stateChanged.connect(self.on_filter_changed)
         filter_layout.addWidget(self.chk_ignore_binary)
 
         self.chk_ignore_lockfiles = QCheckBox("Игнорировать лок-файлы и автогенерацию")
-        self.chk_ignore_lockfiles.setChecked(True)
-        self.chk_ignore_lockfiles.stateChanged.connect(self.reload_tree)
+        self.chk_ignore_lockfiles.setChecked(self.config_manager.get("ignore_lockfiles", True))
+        self.chk_ignore_lockfiles.stateChanged.connect(self.on_filter_changed)
         filter_layout.addWidget(self.chk_ignore_lockfiles)
 
         preset_layout = QHBoxLayout()
@@ -159,22 +180,27 @@ class PackerApp(QMainWindow):
 
         filter_layout.addWidget(QLabel("Только расширения (через запятую):"))
         self.whitelist_input = QLineEdit()
-        self.whitelist_input.setPlaceholderText("Оставьте пустым для отображения всех файлов")
-        self.whitelist_input.editingFinished.connect(self.reload_tree)
+        self.whitelist_input.setPlaceholderText("Пусто — использовать активные чипсы из настроек")
+        self.whitelist_input.editingFinished.connect(self.on_filter_changed)
         filter_layout.addWidget(self.whitelist_input)
 
         filter_layout.addWidget(QLabel("Глобальные папки-исключения:"))
-        self.manual_input = QLineEdit(UNIVERSAL_GLOBAL_EXCLUDES)
-        self.manual_input.editingFinished.connect(self.reload_tree)
+        self.manual_input = QLineEdit(self.config_manager.get("manual_excludes"))
+        self.manual_input.editingFinished.connect(self.on_filter_changed)
         filter_layout.addWidget(self.manual_input)
 
-        theme_layout = QHBoxLayout()
-        theme_layout.addWidget(QLabel("Тема оформления:"))
+        settings_control_layout = QHBoxLayout()
         self.combo_theme = QComboBox()
         self.combo_theme.addItems(["Темная (VS Code)", "Светлая"])
+        self.combo_theme.setCurrentText(self.config_manager.get("theme", "Темная (VS Code)"))
         self.combo_theme.currentTextChanged.connect(self.on_theme_changed)
-        theme_layout.addWidget(self.combo_theme)
-        filter_layout.addLayout(theme_layout)
+        settings_control_layout.addWidget(self.combo_theme)
+
+        btn_open_settings = QPushButton("⚙ Доп. настройки")
+        btn_open_settings.clicked.connect(self.open_settings_dialog)
+        settings_control_layout.addWidget(btn_open_settings)
+        
+        filter_layout.addLayout(settings_control_layout)
 
         layout.addWidget(filter_group)
 
@@ -212,6 +238,9 @@ class PackerApp(QMainWindow):
             self.root_dir = os.path.abspath(directory)
             self.dir_input.setText(self.root_dir)
             self.out_input.setText(os.path.join(self.root_dir, "code_context.txt"))
+            
+            # Запускаем отслеживание папки
+            self.watcher.start_watching(self.root_dir)
             self.reload_tree()
 
     def browse_output_file(self):
@@ -226,10 +255,58 @@ class PackerApp(QMainWindow):
         self.reload_tree()
 
     def on_theme_changed(self, theme_name):
+        self.config_manager.set("theme", theme_name)
         if "Темная" in theme_name:
             self.setStyleSheet(get_stylesheet(DARK_PALETTE))
         else:
             self.setStyleSheet(get_stylesheet(LIGHT_PALETTE))
+
+    def on_filter_changed(self):
+        # Синхронизируем базовые фильтры с JSON-файлом при изменении
+        self.config_manager.set("use_gitignore", self.chk_gitignore.isChecked())
+        self.config_manager.set("ignore_binary", self.chk_ignore_binary.isChecked())
+        self.config_manager.set("ignore_lockfiles", self.chk_ignore_lockfiles.isChecked())
+        self.config_manager.set("manual_excludes", self.manual_input.text())
+        self.reload_tree()
+
+    def on_file_changed_event(self):
+        # При изменении файлов запускаем таймер debounce на 1.5 сек
+        self.update_timer.start(1500)
+
+    def open_settings_dialog(self):
+        dialog = SettingsDialog(self.config_manager, self)
+        if dialog.exec() == SettingsDialog.DialogCode.Accepted:
+            self.reload_tree()
+
+    def check_for_updates(self, silent=True):
+        self.update_thread = UpdateCheckerThread(self)
+        self.update_thread.check_finished.connect(
+            lambda available, version, url: self.on_update_check_finished(available, version, url, silent)
+        )
+        self.update_thread.start()
+
+    def check_for_updates_manual(self):
+        self.status_bar.showMessage("Проверка обновлений...")
+        self.check_for_updates(silent=False)
+
+    def on_update_check_finished(self, available, version, url, silent):
+        if available and url:
+            reply = QMessageBox.question(
+                self, 
+                "Доступно обновление", 
+                f"Найдена новая версия программы: {version}.\nЖелаете обновиться автоматически сейчас?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.status_bar.showMessage("Скачивание обновления...")
+                success, error_msg = perform_self_update(url)
+                if not success:
+                    QMessageBox.warning(self, "Ошибка обновления", f"Не удалось выполнить обновление: {error_msg}")
+                    self.status_bar.showMessage("Не удалось обновить приложение.")
+        else:
+            if not silent:
+                QMessageBox.information(self, "Обновления", "У вас установлена последняя версия.")
+                self.status_bar.showMessage("Версия актуальна.")
 
     def reload_tree(self):
         if not self.root_dir or not os.path.exists(self.root_dir):
@@ -237,12 +314,18 @@ class PackerApp(QMainWindow):
 
         self.status_bar.showMessage("Сборка объектного дерева на диске...")
         
+        # Если строка ввода расширений пуста, берем активные расширения из настроек
+        whitelist_text = self.whitelist_input.text().strip()
+        if not whitelist_text:
+            active_badges = self.config_manager.get("active_extensions", [])
+            whitelist_text = ", ".join(active_badges)
+
         self.root_node = scan_directory(
             root_dir=self.root_dir,
             use_gitignore=self.chk_gitignore.isChecked(),
             ignore_binary=self.chk_ignore_binary.isChecked(),
             ignore_lockfiles=self.chk_ignore_lockfiles.isChecked(),
-            whitelist_input_text=self.whitelist_input.text(),
+            whitelist_input_text=whitelist_text,
             manual_input_text=self.manual_input.text(),
             output_file_path=self.out_input.text().strip()
         )
@@ -428,3 +511,8 @@ class PackerApp(QMainWindow):
             QMessageBox.information(self, "Успешно", f"Файл сохранен:\n{out_path}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось записать файл на диск:\n{e}")
+
+    def closeEvent(self, event):
+        # Принудительно глушим наблюдатель перед завершением
+        self.watcher.stop_watching()
+        event.accept()
