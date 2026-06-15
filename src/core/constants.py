@@ -1,7 +1,7 @@
 # src/core/constants.py
 
 UNIVERSAL_GLOBAL_EXCLUDES = (
-    ".git, .github, .idea, .vscode, build/bin, build/dist, "
+    ".git, .idea, .vscode, build/bin, build/dist, "
     "node_modules, .vite, .svelte-kit, .next, venv, .venv, env, .env, "
     "dist, tmp, temp, __pycache__"
 )
