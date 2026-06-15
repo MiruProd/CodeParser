@@ -13,8 +13,17 @@ env:
 
 jobs:
   build:
-    name: Build on Windows
-    runs-on: windows-latest
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            asset_name: CodeParser_Windows.exe
+          - os: macos-latest
+            asset_name: CodeParser_macOS.zip
+          - os: ubuntu-latest
+            asset_name: CodeParser_Linux.tar.gz
 
     permissions:
       contents: write
@@ -28,14 +37,22 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Установка системных зависимостей для Linux (необходимы для компиляции PyQt6 на Ubuntu)
+      - name: Install Linux GUI dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1-mesa-dev libgl1-mesa-dev libxcb-cursor0
+
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller pillow
 
-      # Безопасно внедряем тег релиза в updater.py через bash-оболочку
-      - name: Inject Version Tag
+      # Автоматическая подстановка тега версии (Windows)
+      - name: Inject Version Tag (Windows)
+        if: matrix.os == 'windows-latest'
         shell: bash
         run: |
           python -c "
@@ -49,14 +66,52 @@ jobs:
               f.write(content)
           "
 
+      # Автоматическая подстановка тега версии (macOS & Linux)
+      - name: Inject Version Tag (macOS / Linux)
+        if: matrix.os != 'windows-latest'
+        run: |
+          python3 -c "
+          import re
+          path = 'src/core/updater.py'
+          with open(path, 'r', encoding='utf-8') as f:
+              content = f.read()
+          tag = '${{ github.ref_name }}'
+          content = re.sub(r'CURRENT_VERSION\s*=\s*\"[^\"]+\"', f'CURRENT_VERSION = \"{tag}\"', content)
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(content)
+          "
+
+      # Запуск нашего кроссплатформенного Python-скрипта сборки
       - name: Build Executable
         run: |
           python build_scripts/build_exe.py
 
+      # Подготовка ассета релиза для Windows
+      - name: Prepare Windows Release Asset
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          mv dist/CodeParser.exe CodeParser_Windows.exe
+
+      # Подготовка ассета релиза для macOS
+      - name: Prepare macOS Release Asset
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd dist
+          zip -r ../CodeParser_macOS.zip CodeParser.app
+
+      # Подготовка ассета релиза для Linux
+      - name: Prepare Linux Release Asset
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd dist
+          tar -czvf ../CodeParser_Linux.tar.gz CodeParser
+
+      # Публикация ассета на странице релизов GitHub
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/CodeParser.exe
+          files: ${{ matrix.asset_name }}
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           draft: false
