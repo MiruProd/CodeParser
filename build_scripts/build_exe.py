@@ -31,6 +31,19 @@ def build():
         "--clean",
     ]
 
+    # Принудительно упаковываем библиотеки Microsoft Visual C++ Runtime (VCRuntime) вовнутрь EXE.
+    # Это полностью решает проблему "Failed to load Python DLL" на компьютерах без установленного MSVC Redistributable.
+    if sys.platform == "win32":
+        sys32_dir = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32")
+        for dll_name in ["vcruntime140.dll", "vcruntime140_1.dll"]:
+            dll_path = os.path.join(sys32_dir, dll_name)
+            if os.path.exists(dll_path):
+                # На Windows PyInstaller требует разделения путей точкой с запятой ';'
+                args.append(f"--add-binary={dll_path};.")
+                print(f"Config: Bundling MSVC runtime DLL: {dll_name}")
+            else:
+                print(f"Warning: System DLL not found: {dll_path}")
+
     if os.path.exists(icon_png):
         args.append(f"--icon={icon_png}")
         print("Config: Application icon found. Setting logo for EXE file.")

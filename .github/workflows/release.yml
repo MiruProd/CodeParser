@@ -34,6 +34,21 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pillow
 
+      # Безопасно внедряем тег релиза в updater.py через bash-оболочку
+      - name: Inject Version Tag
+        shell: bash
+        run: |
+          python -c "
+          import re
+          path = 'src/core/updater.py'
+          with open(path, 'r', encoding='utf-8') as f:
+              content = f.read()
+          tag = '${{ github.ref_name }}'
+          content = re.sub(r'CURRENT_VERSION\s*=\s*\"[^\"]+\"', f'CURRENT_VERSION = \"{tag}\"', content)
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(content)
+          "
+
       - name: Build Executable
         run: |
           python build_scripts/build_exe.py
