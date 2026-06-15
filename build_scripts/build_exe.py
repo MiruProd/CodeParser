@@ -44,6 +44,15 @@ def build():
             else:
                 print(f"Warning: System DLL not found: {dll_path}")
 
+    # Принудительно упаковываем статический шаблон настроек по умолчанию (default_settings.json)
+    default_settings_src = os.path.join(root_dir, "src", "core", "default_settings.json")
+    if os.path.exists(default_settings_src):
+        # Используем кроссплатформенный разделитель путей (os.pathsep) для сборщика
+        args.append(f"--add-data={default_settings_src}{os.pathsep}core")
+        print("Config: Found default_settings.json. Bundling as static asset.")
+    else:
+        print("Error: default_settings.json not found! Build might be broken.")
+
     if os.path.exists(icon_png):
         args.append(f"--icon={icon_png}")
         print("Config: Application icon found. Setting logo for EXE file.")

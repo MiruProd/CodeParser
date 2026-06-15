@@ -14,14 +14,19 @@ class FileNode:
         self.size = size
         self.children = []
 
-def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whitelist_input_text, manual_input_text, output_file_path=None):
-    """Обходит проект на диске и возвращает отфильтрованное дерево FileNode."""
+def scan_directory(root_dir, use_gitignore, ignore_binary, ignore_lockfiles, whitelist_input_text, manual_input_text, output_file_path=None, gitignore_disabled_rules=None):
+    """Обходит проект на диске и возвращает отфильтрованное дерево FileNode с учетом отключенных правил .gitignore."""
     if not os.path.exists(root_dir):
         return None
 
     gitignore_rules = []
     if use_gitignore:
-        gitignore_rules = parse_gitignore(os.path.join(root_dir, '.gitignore'))
+        all_rules = parse_gitignore(os.path.join(root_dir, '.gitignore'))
+        if gitignore_disabled_rules:
+            # Исключаем из обработки те правила, которые пользователь отключил в настройках
+            gitignore_rules = [r for r in all_rules if r not in gitignore_disabled_rules]
+        else:
+            gitignore_rules = all_rules
 
     manual_excludes = [p.strip() for p in manual_input_text.split(',') if p.strip()]
     
@@ -82,7 +87,6 @@ def generate_ascii_tree(node, selected_paths=None, indent=""):
     """Рекурсивно строит ASCII структуру на основе переданных узлов."""
     lines = []
     
-    # Изменено: проверяем, что selected_paths не пустой, чтобы при пустом выборе возвращать структуру полностью
     if selected_paths:
         children = [
             c for c in node.children 
