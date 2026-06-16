@@ -1,20 +1,25 @@
 # src/ui/main_window.py
 
 import os
+import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QLineEdit, QPushButton, QFileDialog, QTextEdit, 
     QTreeWidget, QTreeWidgetItem, QSplitter, QGroupBox, 
-    QMessageBox, QStyle, QStatusBar, QHeaderView
+    QMessageBox, QStyle, QStatusBar, QHeaderView, QCheckBox,
+    QComboBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QAction
 
 from core.parser import scan_directory, build_payload
+from config.resource_helper import get_resource_path
 from ui.style import get_stylesheet, DARK_PALETTE, LIGHT_PALETTE
 
 # Интеграция модулей управления
-from core.config_manager import ConfigManager
+from config.config_manager import ConfigManager
+from config.prompt_manager import PromptManager
+from ui.prompt_edit_dialog import PromptEditDialog, PromptCreateDialog
 from core.watcher import ProjectWatcher
 from core.updater import UpdateCheckerThread, perform_self_update, apply_restart_and_exit, CURRENT_VERSION
 from ui.settings_dialog import SettingsDialog
@@ -23,8 +28,9 @@ from ui.settings_dialog import SettingsDialog
 class PackerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        # Загрузка менеджера настроек
+        # Загрузка менеджеров настроек и промптов
         self.config_manager = ConfigManager()
+        self.prompt_manager = PromptManager(self.config_manager.config_dir, self.config_manager)
         
         self.setWindowTitle(f"CodeParser — {CURRENT_VERSION}")
         self.resize(1100, 700)
@@ -74,14 +80,14 @@ class PackerApp(QMainWindow):
         paths_group = self._create_paths_group()
         main_layout.addWidget(paths_group)
 
-        # Сплиттер для дерева и логов
+        # Сплиттер для дерева и настроек ИИ с логами
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
         tree_container = self._create_tree_panel()
-        log_container = self._create_log_panel()
+        right_panel_container = self._create_right_panel()
         
         splitter.addWidget(tree_container)
-        splitter.addWidget(log_container)
+        splitter.addWidget(right_panel_container)
         splitter.setSizes([650, 450])
         
         main_layout.addWidget(splitter, 1)
@@ -197,15 +203,62 @@ class PackerApp(QMainWindow):
         layout.addWidget(self.tree_widget)
         return container
 
-    def _create_log_panel(self):
-        container = QGroupBox("Лог работы")
+    def _create_right_panel(self):
+        container = QWidget()
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Панель быстрых параметров контекста и ИИ
+        ai_group = QGroupBox("Параметры контекста и ИИ")
+        ai_layout = QVBoxLayout(ai_group)
+
+        # Выбор шаблона-скилла
+        prompt_selector_layout = QHBoxLayout()
+        prompt_selector_layout.addWidget(QLabel("Шаблон задачи (Скилл):"))
+        self.combo_prompts = QComboBox()
+        self.combo_prompts.currentTextChanged.connect(self.on_prompt_changed)
+        prompt_selector_layout.addWidget(self.combo_prompts, 1)
+
+        btn_add_prompt = QPushButton("➕ Добавить")
+        btn_add_prompt.clicked.connect(self.create_new_prompt)
+        prompt_selector_layout.addWidget(btn_add_prompt)
+
+        btn_edit_prompt = QPushButton("⚙ Изменить")
+        btn_edit_prompt.clicked.connect(self.edit_current_prompt)
+        prompt_selector_layout.addWidget(btn_edit_prompt)
+        ai_layout.addLayout(prompt_selector_layout)
+
+        # Быстрые чекбоксы оптимизации (сохраняются на лету)
+        toggles_layout = QHBoxLayout()
+        self.chk_xml = QCheckBox("Формат XML")
+        self.chk_xml.setChecked(self.config_manager.get("xml_format", True))
+        self.chk_xml.stateChanged.connect(self.reload_tree)
         
+        self.chk_strip_comments = QCheckBox("Без комментариев")
+        self.chk_strip_comments.setChecked(self.config_manager.get("strip_comments", False))
+        self.chk_strip_comments.stateChanged.connect(self.reload_tree)
+
+        self.chk_compress_whitespace = QCheckBox("Сжать код (минимизировать)")
+        self.chk_compress_whitespace.setChecked(self.config_manager.get("compress_whitespace", False))
+        self.chk_compress_whitespace.stateChanged.connect(self.reload_tree)
+
+        toggles_layout.addWidget(self.chk_xml)
+        toggles_layout.addWidget(self.chk_strip_comments)
+        toggles_layout.addWidget(self.chk_compress_whitespace)
+        ai_layout.addLayout(toggles_layout)
+
+        layout.addWidget(ai_group)
+
+        # Группа лога работы
+        log_group = QGroupBox("Лог работы")
+        log_layout = QVBoxLayout(log_group)
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        layout.addWidget(self.log_output)
+        log_layout.addWidget(self.log_output)
         
+        layout.addWidget(log_group, 1)
+
+        self.populate_prompts_combo()
         return container
 
     def _create_bottom_panel(self):
@@ -226,6 +279,58 @@ class PackerApp(QMainWindow):
         layout.addWidget(self.btn_save)
 
         return layout
+
+    def populate_prompts_combo(self):
+        self.combo_prompts.blockSignals(True)
+        self.combo_prompts.clear()
+        for key, value in self.prompt_manager.prompts.items():
+            self.combo_prompts.addItem(value["title"], key)
+        
+        # Восстанавливаем ранее выбранный шаблон из настроек
+        last_prompt_key = self.config_manager.get("last_prompt_key", "just_code")
+        index = self.combo_prompts.findData(last_prompt_key)
+        if index >= 0:
+            self.combo_prompts.setCurrentIndex(index)
+        self.combo_prompts.blockSignals(False)
+
+    def on_prompt_changed(self):
+        current_key = self.combo_prompts.currentData()
+        if current_key:
+            self.config_manager.set("last_prompt_key", current_key)
+            self.reload_tree()
+
+    def create_new_prompt(self):
+        # Передаем менеджер промптов первым аргументом
+        dialog = PromptCreateDialog(self.prompt_manager, self)
+        if dialog.exec() == PromptCreateDialog.DialogCode.Accepted:
+            data = dialog.get_data()
+            
+            # Генерируем уникальный ключ для нового скилла
+            new_key = f"user_prompt_{int(time.time())}"
+            
+            # Сохраняем новый скилл через prompt_manager
+            self.prompt_manager.prompts[new_key] = data
+            self.prompt_manager.save_prompts()
+            
+            self.log_output.append(f"Лог: Создан новый скилл '{data['title']}'.")
+            
+            # Обновляем комбобокс и выбираем новый промпт
+            self.config_manager.set("last_prompt_key", new_key)
+            self.populate_prompts_combo()
+
+    def edit_current_prompt(self):
+        current_key = self.combo_prompts.currentData()
+        if not current_key:
+            return
+            
+        prompt_data = self.prompt_manager.prompts[current_key]
+        dialog = PromptEditDialog(prompt_data["title"], prompt_data["prompt"], self)
+        
+        if dialog.exec() == PromptEditDialog.DialogCode.Accepted:
+            new_text = dialog.get_text()
+            self.prompt_manager.update_prompt(current_key, new_text)
+            self.log_output.append(f"Лог: Шаблон '{prompt_data['title']}' успешно обновлен.")
+            self.reload_tree()
 
     def update_application_theme(self):
         theme = self.config_manager.get("theme", "Темная (VS Code)")
@@ -510,7 +615,33 @@ class PackerApp(QMainWindow):
             for i in range(1, len(parts)):
                 selected_paths.add("/".join(parts[:i]))
 
-        return build_payload(self.root_dir, self.root_node, selected_files, selected_paths)
+        # Извлекаем текст текущего выбранного промпта
+        current_key = self.combo_prompts.currentData()
+        system_prompt = ""
+        if current_key and current_key in self.prompt_manager.prompts:
+            system_prompt = self.prompt_manager.prompts[current_key]["prompt"]
+
+        # Читаем состояние чекбоксов прямо с главного экрана на лету
+        xml_format = self.chk_xml.isChecked()
+        strip_comments = self.chk_strip_comments.isChecked()
+        compress_whitespace = self.chk_compress_whitespace.isChecked()
+
+        # Сохраняем состояние переключателей в настройки
+        self.config_manager.set("xml_format", xml_format)
+        self.config_manager.set("strip_comments", strip_comments)
+        self.config_manager.set("compress_whitespace", compress_whitespace)
+
+        return build_payload(
+            self.root_dir, 
+            self.root_node, 
+            selected_files, 
+            selected_paths,
+            comment_rules=self.config_manager.comment_rules,
+            strip_comments=strip_comments,
+            compress_whitespace=compress_whitespace,
+            system_prompt=system_prompt,
+            xml_format=xml_format
+        )
 
     def copy_to_clipboard(self):
         payload = self._generate_payload()

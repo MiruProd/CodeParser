@@ -35,13 +35,26 @@ def get_stylesheet(palette: dict) -> str:
         color: {palette['fg_main']}; 
     }}
 
-    /* Стилизация верхнего меню и исправление слипания текста */
+    /* Стилизация верхнего меню */
     QMenuBar {{
         background-color: {palette['bg_header']};
         color: {palette['fg_main']};
+        border-bottom: 1px solid {palette['border']};
     }}
+    QMenuBar::item {{
+        background: transparent;
+        padding: 4px 10px;
+        margin: 2px 0px;
+        border-radius: 4px;
+    }}
+    /* Когда мышь наведена, но меню ЕЩЕ НЕ нажато */
     QMenuBar::item:selected {{
-        background-color: {palette['accent_hover']};
+        background-color: {palette['border']};
+        color: {palette['fg_main']};
+    }}
+    /* Когда меню НАЖАТО и выпадает список */
+    QMenuBar::item:pressed {{
+        background-color: {palette['accent']};
         color: {palette['fg_accent']};
     }}
     QMenu {{
@@ -50,7 +63,6 @@ def get_stylesheet(palette: dict) -> str:
         border: 1px solid {palette['border']};
     }}
     QMenu::item {{
-        /* Отступы: верх, право, низ, лево. Увеличен правый отступ для отделения шорткатов */
         padding: 6px 30px 6px 20px; 
     }}
     QMenu::item:selected {{

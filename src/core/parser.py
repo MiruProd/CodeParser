@@ -2,6 +2,7 @@
 
 import os
 from .ignore_rules import is_ignored, parse_gitignore
+from .transformer import CodeTransformer
 
 class FileNode:
     """Промежуточная структура для изоляции логики дерева файлов от графической библиотеки."""
@@ -107,29 +108,98 @@ def generate_ascii_tree(node, selected_paths=None, indent=""):
 
     return lines
 
-def build_payload(root_dir, root_node, selected_files, selected_paths):
-    """Генерирует финальный размеченный текст для экспорта."""
+def build_payload(root_dir, root_node, selected_files, selected_paths, 
+                  comment_rules=None, strip_comments=False, compress_whitespace=False, 
+                  system_prompt="", xml_format=True):
+    """
+    Генерирует финальный размеченный текст для экспорта.
+    Поддерживает строгий XML-формат и стандартную текстовую разметку на лету.
+    """
     if not root_node:
         return ""
 
-    lines = []
-    
-    lines.append("=== ПОЛНАЯ СТРУКТУРА ПРОЕКТА (БЕЗ СИСТЕМНОГО МУСОРА) ===\n")
-    lines.append(os.path.basename(root_dir) + "/")
-    lines.extend(generate_ascii_tree(root_node, selected_paths))
-    lines.append("\n" + "="*80 + "\n\n")
+    # Генерируем дерево структуры в виде ASCII-текста
+    tree_lines = [os.path.basename(root_dir) + "/"]
+    tree_lines.extend(generate_ascii_tree(root_node, selected_paths))
+    ascii_tree = "\n".join(tree_lines)
 
-    if selected_files:
-        lines.append("=== СОДЕРЖИМОЕ КЛЮЧЕВЫХ ФАЙЛОВ КОДА ===\n\n")
-        for file_info in selected_files:
-            lines.append(f'<file path="{file_info["rel_path"]}">\n')
-            try:
-                with open(file_info['full_path'], 'r', encoding='utf-8', errors='replace') as f:
-                    lines.append(f.read())
-            except Exception as e:
-                lines.append(f"[Ошибка при чтении содержимого: {e}]\n")
-            lines.append('\n</file>\n\n')
+    # 1. Сборка в строгом XML формате
+    if xml_format:
+        lines = ["<repository_context>\n"]
+        
+        # Раздел инструкций ИИ
+        if system_prompt.strip():
+            lines.append("  <instructions>\n")
+            lines.append(f"    {system_prompt.strip()}\n")
+            lines.append("  </instructions>\n\n")
+
+        # Раздел структуры директорий
+        lines.append("  <directory_structure>\n")
+        lines.append(f"<![CDATA[\n{ascii_tree}\n]]>\n")
+        lines.append("  </directory_structure>\n\n")
+
+        # Раздел содержимого файлов
+        lines.append("  <source_files>\n")
+        if selected_files:
+            for file_info in selected_files:
+                rel_path = file_info["rel_path"]
+                # Безопасно извлекаем расширение прямо из относительного пути к файлу
+                _, ext = os.path.splitext(rel_path)
+                
+                lines.append(f'    <file path="{rel_path}">\n')
+                try:
+                    with open(file_info['full_path'], 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    
+                    # Применяем оптимизацию токенов, если включены флаги
+                    if comment_rules and (strip_comments or compress_whitespace):
+                        content = CodeTransformer.transform(
+                            content, ext, comment_rules, strip_comments, compress_whitespace
+                        )
+                    
+                    # Безопасно экранируем возможные закрывающие CDATA теги внутри исходного кода
+                    safe_content = content.replace("]]>", "]]]]><![CDATA[>")
+                    lines.append(f"<![CDATA[\n{safe_content}\n]]>\n")
+                except Exception as e:
+                    lines.append(f"<![CDATA[\n[Ошибка при чтении содержимого: {e}]\n]]>\n")
+                lines.append('    </file>\n')
+        lines.append("  </source_files>\n")
+        lines.append("</repository_context>")
+        
+        return "".join(lines)
+
+    # 2. Сборка в классическом текстовом формате (Markdown-стиль)
     else:
-        lines.append("=== СОДЕРЖИМОЕ КОДА ===\n\n[Ни один файл кода не был выбран для экспорта. Скопирована только структура проекта.]\n")
+        lines = []
+        if system_prompt.strip():
+            lines.append("=== ИНСТРУКЦИЯ ДЛЯ НЕЙРОСЕТИ ===\n")
+            lines.append(system_prompt.strip())
+            lines.append("\n" + "="*80 + "\n\n")
 
-    return "".join(lines)
+        lines.append("=== ПОЛНАЯ СТРУКТУРА ПРОЕКТА (БЕЗ СИСТЕМНОГО МУСОРА) ===\n")
+        lines.append(ascii_tree)
+        lines.append("\n" + "="*80 + "\n\n")
+
+        if selected_files:
+            lines.append("=== СОДЕРЖИМОЕ КЛЮЧЕВЫХ ФАЙЛОВ КОДА ===\n\n")
+            for file_info in selected_files:
+                rel_path = file_info["rel_path"]
+                _, ext = os.path.splitext(rel_path)
+                
+                lines.append(f'<file path="{rel_path}">\n')
+                try:
+                    with open(file_info['full_path'], 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    
+                    if comment_rules and (strip_comments or compress_whitespace):
+                        content = CodeTransformer.transform(
+                            content, ext, comment_rules, strip_comments, compress_whitespace
+                        )
+                    lines.append(content)
+                except Exception as e:
+                    lines.append(f"[Ошибка при чтении содержимого: {e}]")
+                lines.append('\n</file>\n\n')
+        else:
+            lines.append("=== СОДЕРЖИМОЕ КОДА ===\n\n[Ни один файл кода не был выбран для экспорта. Скопирована только структура проекта.]\n")
+
+        return "".join(lines)

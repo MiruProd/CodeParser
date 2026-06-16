@@ -1,4 +1,7 @@
 {
+	"xml_format": true,
+	"strip_comments": false,
+	"compress_whitespace": false,
 	"use_gitignore": true,
 	"ignore_binary": true,
 	"ignore_lockfiles": true,

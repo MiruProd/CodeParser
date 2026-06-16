@@ -1,0 +1,72 @@
+{
+	"rules": {
+		"c_style": {
+			"extensions": [
+				".js",
+				".jsx",
+				".ts",
+				".tsx",
+				".c",
+				".cpp",
+				".h",
+				".hpp",
+				".go",
+				".rs",
+				".java",
+				".cs",
+				".php",
+				".css",
+				".dart",
+				".kt",
+				".kts",
+				".m",
+				".gradle",
+				".shader",
+				".cginc",
+				".hlsl"
+			],
+			"pattern": "(\"(?:\\\\.|[^\"\\\\])*\")|('(?:\\\\.|[^'\\\\])*')|(//.*?$)|(/\\*.*?\\*/)"
+		},
+		"python_style": {
+			"extensions": [".py", ".ipynb"],
+			"hash_pattern": "(\"(?:\\\\.|[^\"\\\\])*\")|('(?:\\\\.|[^'\\\\])*')|(#.*?$)",
+			"docstring_pattern": "^\\s*(\"\"\"[\\s\\S]*?\"\"\"|'''[\\s\\S]*?''')\\s*$"
+		},
+		"xml_style": {
+			"extensions": [
+				".html",
+				".xml",
+				".svelte",
+				".vue",
+				".astro",
+				".svg",
+				".plist"
+			],
+			"pattern": "(\"(?:\\\\.|[^\"\\\\])*\")|('(?:\\\\.|[^'\\\\])*')|(<!--.*?-->)"
+		},
+		"hash_style": {
+			"extensions": [
+				".sh",
+				".bash",
+				".yaml",
+				".yml",
+				".toml",
+				".ini",
+				"makefile",
+				"dockerfile",
+				".properties",
+				".rb",
+				".ru",
+				".tf",
+				".tfvars",
+				".cmake",
+				"CMakeLists.txt"
+			],
+			"pattern": "(\"(?:\\\\.|[^\"\\\\])*\")|('(?:\\\\.|[^'\\\\])*')|(#.*?$)"
+		},
+		"sql_style": {
+			"extensions": [".sql"],
+			"pattern": "(\"(?:\\\\.|[^\"\\\\])*\")|('(?:\\\\.|[^'\\\\])*')|(--.*?$)|(/\\*.*?\\*/)"
+		}
+	}
+}
