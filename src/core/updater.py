@@ -8,10 +8,10 @@ import zipfile
 import tarfile
 from PyQt6.QtCore import QThread, pyqtSignal
 
-# Версия должна соответствовать вашим тегам в репозитории на GitHub
-CURRENT_VERSION = "v1.0.2"
+# Версия
+CURRENT_VERSION = "v1.0.4"
 
-# Замените на путь к вашему репозиторию
+# Путь к репозиторию
 GITHUB_REPO = "miruprod/CodeParser" 
 
 class UpdateCheckerThread(QThread):
@@ -72,9 +72,18 @@ def perform_self_update(download_url):
         if response.status_code != 200:
             return False, f"Ошибка загрузки: HTTP {response.status_code}", ""
 
-        # Сохраняем скачанный архив/файл во временную директорию
-        asset_name = download_url.split("/")[-1]
-        temp_download_path = os.path.join(app_dir, asset_name)
+        # Для избежания конфликта блокировки запущенного EXE-файла на Windows,
+        # скачиваем файл под временным промежуточным именем.
+        if sys.platform == "win32":
+            temp_name = "CodeParser_update_temp.exe"
+        elif sys.platform.startswith("linux"):
+            temp_name = "CodeParser_update_temp.tar.gz"
+        elif sys.platform == "darwin":
+            temp_name = "CodeParser_update_temp.zip"
+        else:
+            temp_name = "CodeParser_update_temp"
+            
+        temp_download_path = os.path.join(app_dir, temp_name)
         
         with open(temp_download_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
@@ -82,7 +91,7 @@ def perform_self_update(download_url):
 
         # Обработка и подготовка файлов под конкретную ОС
         if sys.platform == "win32":
-            # На Windows мы скачиваем напрямую новый готовый EXE
+            # На Windows мы скачиваем напрямую новый готовый EXE под временным именем
             return True, "Обновление успешно скачано.", temp_download_path
 
         elif sys.platform.startswith("linux"):
@@ -100,18 +109,22 @@ def perform_self_update(download_url):
                 return False, f"Ошибка распаковки архива Linux: {e}", ""
 
         elif sys.platform == "darwin":
-            # На macOS автоматическая перезапись .app-директории во время работы
-            # блокируется системой безопасности. Мы распакуем его рядом и откроем Finder.
+            # На macOS автоматическая перезапись запущенного .app-пакета блокируется ОС.
+            # Чтобы избежать PermissionError, распакуем обновление в отдельную чистую папку рядом.
             try:
-                with zipfile.ZipFile(temp_download_path, 'r') as zip_ref:
-                    zip_ref.extractall(app_dir)
-                os.remove(temp_download_path)  # Удаляем архив
+                extract_target = os.path.join(app_dir, "CodeParser_Updated")
+                os.makedirs(extract_target, exist_ok=True)
                 
-                # Открываем директорию в Finder, чтобы пользователь увидел распакованный файл
-                subprocess.Popen(["open", app_dir])
+                with zipfile.ZipFile(temp_download_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_target)
+                    
+                os.remove(temp_download_path)  # Удаляем временный архив
+                
+                # Открываем созданную папку с обновлением в Finder
+                subprocess.Popen(["open", extract_target])
                 return True, (
-                    f"Обновление успешно распаковано в папку:\n{app_dir}\n\n"
-                    "Пожалуйста, закройте программу и запустите новую версию CodeParser.app из Finder."
+                    f"Обновление успешно распаковано в папку:\n{extract_target}\n\n"
+                    "Пожалуйста, закройте текущую программу и запустите новую версию CodeParser.app из открывшегося окна Finder."
                 ), ""
             except Exception as e:
                 return False, f"Ошибка распаковки архива macOS: {e}", ""
@@ -130,7 +143,8 @@ def apply_restart_and_exit(new_file_path):
         current_exe = os.path.abspath(sys.argv[0])
         
         if sys.platform == "win32":
-            # Скрипт Windows ожидает завершения основного процесса, удаляет старый exe и переименовывает новый
+            # Скрипт Windows ожидает завершения основного процесса, удаляет старый exe,
+            # переименовывает новый (временный) в старое имя и запускает его.
             cmd = f'timeout /t 1 && del "{current_exe}" && move "{new_file_path}" "{current_exe}" && start "" "{current_exe}"'
             subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
             sys.exit(0)
