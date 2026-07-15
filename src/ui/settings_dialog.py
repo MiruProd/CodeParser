@@ -115,6 +115,11 @@ class SettingsDialog(QDialog):
         self.chk_ignore_lockfiles = QCheckBox("Игнорировать лок-файлы и файлы автогенерации")
         self.chk_ignore_lockfiles.setChecked(self.config_manager.get("ignore_lockfiles"))
         filters_layout.addWidget(self.chk_ignore_lockfiles)
+
+        # Чекбокс режима экспорта ASCII-дерева
+        self.chk_full_tree = QCheckBox("Всегда экспортировать полную структуру проекта (ASCII-дерево)")
+        self.chk_full_tree.setChecked(self.config_manager.get("always_send_full_tree", True))
+        filters_layout.addWidget(self.chk_full_tree)
         
         layout.addWidget(filters_group)
 
@@ -143,7 +148,6 @@ class SettingsDialog(QDialog):
     def _build_extensions_tab(self):
         layout = QVBoxLayout(self.tab_extensions)
 
-        # Текстовая подсказка для ясности
         info_label = QLabel(
             "Выберите файлы, которые нужно выгружать в LLM.\n"
             "🔵 Синий бадж — расширение СКАНИРУЕТСЯ.\n"
@@ -184,7 +188,6 @@ class SettingsDialog(QDialog):
     def _build_excludes_tab(self):
         layout = QVBoxLayout(self.tab_excludes)
         
-        # Текстовая подсказка для ясности (здесь логика обратная)
         info_label = QLabel(
             "Выберите папки, которые нужно безусловно исключить из парсинга.\n"
             "🔵 Синий бадж — папка ИГНОРИРУЕТСЯ (скрыта).\n"
@@ -366,6 +369,7 @@ class SettingsDialog(QDialog):
         self.config_manager.set("use_gitignore", self.chk_gitignore.isChecked())
         self.config_manager.set("ignore_binary", self.chk_ignore_binary.isChecked())
         self.config_manager.set("ignore_lockfiles", self.chk_ignore_lockfiles.isChecked())
+        self.config_manager.set("always_send_full_tree", self.chk_full_tree.isChecked())
         self.config_manager.set("theme", self.combo_theme.currentText())
         self.config_manager.set("auto_check_updates", self.chk_auto_update.isChecked())
 

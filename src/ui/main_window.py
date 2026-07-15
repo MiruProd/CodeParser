@@ -191,6 +191,11 @@ class PackerApp(QMainWindow):
         btn_collapse = QPushButton("Свернуть")
         btn_collapse.clicked.connect(lambda: self.tree_widget.collapseAll())
         toolbar.addWidget(btn_collapse)
+
+        # Кнопка для ручного принудительного обновления структуры
+        btn_refresh = QPushButton("Обновить")
+        btn_refresh.clicked.connect(self.reload_tree)
+        toolbar.addWidget(btn_refresh)
         
         layout.addLayout(toolbar)
 
@@ -228,7 +233,7 @@ class PackerApp(QMainWindow):
         prompt_selector_layout.addWidget(btn_edit_prompt)
         ai_layout.addLayout(prompt_selector_layout)
 
-        # Быстрые чекбоксы оптимизации (сохраняются на лету)
+        # Быстрые чекбоксы оптимизации и авто-слежения
         toggles_layout = QHBoxLayout()
         self.chk_xml = QCheckBox("Формат XML")
         self.chk_xml.setChecked(self.config_manager.get("xml_format", True))
@@ -242,9 +247,15 @@ class PackerApp(QMainWindow):
         self.chk_compress_whitespace.setChecked(self.config_manager.get("compress_whitespace", False))
         self.chk_compress_whitespace.stateChanged.connect(self.reload_tree)
 
+        # Чекбокс включения/выключения фонового слежения
+        self.chk_watch_changes = QCheckBox("Авто-слежение")
+        self.chk_watch_changes.setChecked(self.config_manager.get("auto_watch", True))
+        self.chk_watch_changes.stateChanged.connect(self.toggle_watcher)
+
         toggles_layout.addWidget(self.chk_xml)
         toggles_layout.addWidget(self.chk_strip_comments)
         toggles_layout.addWidget(self.chk_compress_whitespace)
+        toggles_layout.addWidget(self.chk_watch_changes)
         ai_layout.addLayout(toggles_layout)
 
         layout.addWidget(ai_group)
@@ -300,21 +311,13 @@ class PackerApp(QMainWindow):
             self.reload_tree()
 
     def create_new_prompt(self):
-        # Передаем менеджер промптов первым аргументом
         dialog = PromptCreateDialog(self.prompt_manager, self)
         if dialog.exec() == PromptCreateDialog.DialogCode.Accepted:
             data = dialog.get_data()
-            
-            # Генерируем уникальный ключ для нового скилла
             new_key = f"user_prompt_{int(time.time())}"
-            
-            # Сохраняем новый скилл через prompt_manager
             self.prompt_manager.prompts[new_key] = data
             self.prompt_manager.save_prompts()
-            
             self.log_output.append(f"Лог: Создан новый скилл '{data['title']}'.")
-            
-            # Обновляем комбобокс и выбираем новый промпт
             self.config_manager.set("last_prompt_key", new_key)
             self.populate_prompts_combo()
 
@@ -352,8 +355,11 @@ class PackerApp(QMainWindow):
                 self.dir_input.setText(self.root_dir)
                 self.out_input.setText(os.path.join(self.root_dir, "code_context.txt"))
                 
-                # Запускаем наблюдение за изменениями
-                self.watcher.start_watching(self.root_dir)
+                # Запускаем наблюдение за изменениями (если опция активна)
+                if self.chk_watch_changes.isChecked():
+                    self.watcher.start_watching(self.root_dir)
+                else:
+                    self.watcher.stop_watching()
                 self.reload_tree()
                 break
 
@@ -364,7 +370,10 @@ class PackerApp(QMainWindow):
             self.dir_input.setText(self.root_dir)
             self.out_input.setText(os.path.join(self.root_dir, "code_context.txt"))
             
-            self.watcher.start_watching(self.root_dir)
+            if self.chk_watch_changes.isChecked():
+                self.watcher.start_watching(self.root_dir)
+            else:
+                self.watcher.stop_watching()
             self.reload_tree()
 
     def browse_output_file(self):
@@ -376,6 +385,17 @@ class PackerApp(QMainWindow):
     def on_file_changed_event(self):
         # Перезапуск сборки дерева с гашением дребезга (debounce)
         self.update_timer.start(1500)
+
+    def toggle_watcher(self):
+        enable = self.chk_watch_changes.isChecked()
+        self.config_manager.set("auto_watch", enable)
+        if enable:
+            if self.root_dir and os.path.exists(self.root_dir):
+                self.watcher.start_watching(self.root_dir)
+                self.log_output.append("Лог: Автоматическое слежение за папкой включено.")
+        else:
+            self.watcher.stop_watching()
+            self.log_output.append("Лог: Автоматическое слежение за папкой отключено.")
 
     def open_settings_dialog(self):
         dialog = SettingsDialog(self.config_manager, self)
@@ -415,17 +435,14 @@ class PackerApp(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 self.status_bar.showMessage("Скачивание обновления...")
                 
-                # Этап 1: Скачиваем ассет и подготавливаем новые файлы
                 success, msg, new_file_path = perform_self_update(url)
                 
                 if success:
-                    # Этап 2: Показываем диалог согласия на перезапуск приложения
                     QMessageBox.information(
                         self,
                         "Обновление готово",
                         f"{msg}\n\nПрограмма будет автоматически закрыта и перезапущена для завершения установки."
                     )
-                    # Выполняем фоновую подмену файлов и мгновенно завершаем процесс
                     apply_restart_and_exit(new_file_path)
                 else:
                     QMessageBox.warning(self, "Ошибка обновления", f"Не удалось выполнить обновление:\n{msg}")
@@ -434,6 +451,23 @@ class PackerApp(QMainWindow):
             if not silent:
                 QMessageBox.information(self, "Обновления", "У вас установлена последняя версия.")
                 self.status_bar.showMessage("Версия актуальна.")
+
+    def _save_check_states(self) -> dict:
+        """Рекурсивно обходит текущее GUI дерево и сохраняет состояния чекбоксов по rel_path."""
+        states = {}
+        if self.tree_widget.topLevelItemCount() == 0:
+            return states
+        root_item = self.tree_widget.topLevelItem(0)
+        self._collect_states(root_item, states)
+        return states
+
+    def _collect_states(self, item, states):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data:
+            rel_path = data.get('rel_path', '')
+            states[rel_path] = item.checkState(0)
+        for i in range(item.childCount()):
+            self._collect_states(item.child(i), states)
 
     def reload_tree(self):
         if not self.root_dir or not os.path.exists(self.root_dir):
@@ -450,9 +484,11 @@ class PackerApp(QMainWindow):
 
         disabled_rules = self.config_manager.get("gitignore_disabled_rules", [])
         
-        # Загружаем списки бинарных и лок-файлов из JSON
         binary_exts = self.config_manager.get("binary_extensions", [])
         lockfiles_excl = self.config_manager.get("lockfiles_excludes", [])
+
+        # Сохраняем состояние выбранных элементов перед перестроением
+        saved_states = self._save_check_states()
 
         self.root_node = scan_directory(
             root_dir=self.root_dir,
@@ -474,7 +510,12 @@ class PackerApp(QMainWindow):
             root_item = QTreeWidgetItem(self.tree_widget)
             root_item.setText(0, self.root_node.name)
             root_item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
-            root_item.setCheckState(0, Qt.CheckState.Checked)
+            
+            # Восстанавливаем сохраненное состояние для корня (или Checked по умолчанию)
+            root_state = Qt.CheckState.Checked
+            if self.root_node.rel_path in saved_states:
+                root_state = saved_states[self.root_node.rel_path]
+            root_item.setCheckState(0, root_state)
             
             root_item.setData(0, Qt.ItemDataRole.UserRole, {
                 'full_path': self.root_node.full_path,
@@ -483,7 +524,7 @@ class PackerApp(QMainWindow):
                 'size': 0
             })
             
-            self._populate_ui_tree(root_item, self.root_node)
+            self._populate_ui_tree(root_item, self.root_node, saved_states)
             root_item.setExpanded(True)
 
         self.tree_widget.blockSignals(False)
@@ -494,15 +535,23 @@ class PackerApp(QMainWindow):
         self.status_bar.showMessage("Проект просканирован успешно.")
         self.log_output.append(f"Обновлено дерево для: {self.root_dir}")
 
-    def _populate_ui_tree(self, parent_item, model_node):
+    def _populate_ui_tree(self, parent_item, model_node, saved_states=None):
+        if saved_states is None:
+            saved_states = {}
+
         for child in model_node.children:
             item = QTreeWidgetItem(parent_item)
             item.setText(0, child.name)
-            item.setCheckState(0, Qt.CheckState.Checked)
+            
+            # Восстанавливаем сохраненное состояние или оставляем Checked по умолчанию
+            state = Qt.CheckState.Checked
+            if child.rel_path in saved_states:
+                state = saved_states[child.rel_path]
+            item.setCheckState(0, state)
             
             if child.is_dir:
                 item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
-                self._populate_ui_tree(item, child)
+                self._populate_ui_tree(item, child, saved_states)
             else:
                 kb_size = round(child.size / 1024, 1)
                 item.setText(1, f"{kb_size} KB")
@@ -615,21 +664,21 @@ class PackerApp(QMainWindow):
             for i in range(1, len(parts)):
                 selected_paths.add("/".join(parts[:i]))
 
-        # Извлекаем текст текущего выбранного промпта
         current_key = self.combo_prompts.currentData()
         system_prompt = ""
         if current_key and current_key in self.prompt_manager.prompts:
             system_prompt = self.prompt_manager.prompts[current_key]["prompt"]
 
-        # Читаем состояние чекбоксов прямо с главного экрана на лету
         xml_format = self.chk_xml.isChecked()
         strip_comments = self.chk_strip_comments.isChecked()
         compress_whitespace = self.chk_compress_whitespace.isChecked()
 
-        # Сохраняем состояние переключателей в настройки
         self.config_manager.set("xml_format", xml_format)
         self.config_manager.set("strip_comments", strip_comments)
         self.config_manager.set("compress_whitespace", compress_whitespace)
+
+        # Считываем переключатель режима дерева из JSON настроек
+        always_send_full_tree = self.config_manager.get("always_send_full_tree", True)
 
         return build_payload(
             self.root_dir, 
@@ -640,7 +689,8 @@ class PackerApp(QMainWindow):
             strip_comments=strip_comments,
             compress_whitespace=compress_whitespace,
             system_prompt=system_prompt,
-            xml_format=xml_format
+            xml_format=xml_format,
+            always_send_full_tree=always_send_full_tree
         )
 
     def copy_to_clipboard(self):

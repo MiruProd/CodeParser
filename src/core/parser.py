@@ -110,7 +110,7 @@ def generate_ascii_tree(node, selected_paths=None, indent=""):
 
 def build_payload(root_dir, root_node, selected_files, selected_paths, 
                   comment_rules=None, strip_comments=False, compress_whitespace=False, 
-                  system_prompt="", xml_format=True):
+                  system_prompt="", xml_format=True, always_send_full_tree=True):
     """
     Генерирует финальный размеченный текст для экспорта.
     Поддерживает строгий XML-формат и стандартную текстовую разметку на лету.
@@ -120,7 +120,10 @@ def build_payload(root_dir, root_node, selected_files, selected_paths,
 
     # Генерируем дерево структуры в виде ASCII-текста
     tree_lines = [os.path.basename(root_dir) + "/"]
-    tree_lines.extend(generate_ascii_tree(root_node, selected_paths))
+    
+    # Если опция активна, строим полную ASCII-карту, иначе — только по выбранным путям
+    tree_paths = None if always_send_full_tree else selected_paths
+    tree_lines.extend(generate_ascii_tree(root_node, tree_paths))
     ascii_tree = "\n".join(tree_lines)
 
     # 1. Сборка в строгом XML формате
@@ -135,7 +138,7 @@ def build_payload(root_dir, root_node, selected_files, selected_paths,
 
         # Раздел структуры директорий
         lines.append("  <directory_structure>\n")
-        lines.append(f"<![CDATA[\n{ascii_tree}\n]]>\n")
+        lines.append(f"<![CDATA[\n{ascii_tree}\n]]]]><![CDATA[>\n")
         lines.append("  </directory_structure>\n\n")
 
         # Раздел содержимого файлов
@@ -158,10 +161,10 @@ def build_payload(root_dir, root_node, selected_files, selected_paths,
                         )
                     
                     # Безопасно экранируем возможные закрывающие CDATA теги внутри исходного кода
-                    safe_content = content.replace("]]>", "]]]]><![CDATA[>")
-                    lines.append(f"<![CDATA[\n{safe_content}\n]]>\n")
+                    safe_content = content.replace("]]]]><![CDATA[>", "]]]]]]><![CDATA[><![CDATA[>")
+                    lines.append(f"<![CDATA[\n{safe_content}\n]]]]><![CDATA[>\n")
                 except Exception as e:
-                    lines.append(f"<![CDATA[\n[Ошибка при чтении содержимого: {e}]\n]]>\n")
+                    lines.append(f"<![CDATA[\n[Ошибка при чтении содержимого: {e}]\n]]]]><![CDATA[>\n")
                 lines.append('    </file>\n')
         lines.append("  </source_files>\n")
         lines.append("</repository_context>")

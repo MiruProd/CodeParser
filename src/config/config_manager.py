@@ -45,12 +45,17 @@ class ConfigManager:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
                 
-            # Слияние новых ключей из дефолтного шаблона в пользовательский файл
+            # Слияние новых ключей и умное объединение элементов списков (например, новых исключений)
             modified = False
             for key, val in self.default_config.items():
                 if key not in loaded:
                     loaded[key] = val
                     modified = True
+                elif isinstance(val, list) and isinstance(loaded[key], list):
+                    for item in val:
+                        if item not in loaded[key]:
+                            loaded[key].append(item)
+                            modified = True
                     
             if modified:
                 self.save_config(loaded)
