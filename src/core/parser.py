@@ -126,6 +126,11 @@ def build_payload(root_dir, root_node, selected_files, selected_paths,
     tree_lines.extend(generate_ascii_tree(root_node, tree_paths))
     ascii_tree = "\n".join(tree_lines)
 
+    # Константы для безопасного CDATA-эскейпинга без эффекта "инцепции" (само-эскейпинга кода)
+    cdata_closer = "]]" + "]]><![CDATA[>"                  # Эквивалент "]]]]><![CDATA[>"
+    cdata_find = "]]" + "]]><![CDATA[>"                    # Эквивалент "]]]]><![CDATA[>"
+    cdata_replace = "]]" + "]]" + "]]><![CDATA[><![CDATA[>" # Эквивалент "]]]]]]><![CDATA[><![CDATA[>"
+
     # 1. Сборка в строгом XML формате
     if xml_format:
         lines = ["<repository_context>\n"]
@@ -138,7 +143,7 @@ def build_payload(root_dir, root_node, selected_files, selected_paths,
 
         # Раздел структуры директорий
         lines.append("  <directory_structure>\n")
-        lines.append(f"<![CDATA[\n{ascii_tree}\n]]]]><![CDATA[>\n")
+        lines.append(f"<![CDATA[\n{ascii_tree}\n{cdata_closer}\n")
         lines.append("  </directory_structure>\n\n")
 
         # Раздел содержимого файлов
@@ -161,10 +166,10 @@ def build_payload(root_dir, root_node, selected_files, selected_paths,
                         )
                     
                     # Безопасно экранируем возможные закрывающие CDATA теги внутри исходного кода
-                    safe_content = content.replace("]]]]><![CDATA[>", "]]]]]]><![CDATA[><![CDATA[>")
-                    lines.append(f"<![CDATA[\n{safe_content}\n]]]]><![CDATA[>\n")
+                    safe_content = content.replace(cdata_find, cdata_replace)
+                    lines.append(f"<![CDATA[\n{safe_content}\n{cdata_closer}\n")
                 except Exception as e:
-                    lines.append(f"<![CDATA[\n[Ошибка при чтении содержимого: {e}]\n]]]]><![CDATA[>\n")
+                    lines.append(f"<![CDATA[\n[Ошибка при чтении содержимого: {e}]\n{cdata_closer}\n")
                 lines.append('    </file>\n')
         lines.append("  </source_files>\n")
         lines.append("</repository_context>")
