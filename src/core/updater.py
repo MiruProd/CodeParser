@@ -9,7 +9,7 @@ import tarfile
 from PyQt6.QtCore import QThread, pyqtSignal
 
 # Версия
-CURRENT_VERSION = "v1.0.5"
+CURRENT_VERSION = "v1.0.6"
 
 # Путь к репозиторию
 GITHUB_REPO = "miruprod/CodeParser" 
