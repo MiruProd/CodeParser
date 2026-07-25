@@ -54,10 +54,14 @@ class ControlPanel(QWidget):
         self.chk_sanitize_secrets = QCheckBox("Скрыть секреты")
         self.chk_sanitize_secrets.stateChanged.connect(lambda: self.settings_changed.emit())
 
+        self.chk_skeleton_mode = QCheckBox("Скелет (сигнатуры)")
+        self.chk_skeleton_mode.stateChanged.connect(lambda: self.settings_changed.emit())
+
         self.chk_watch_changes = QCheckBox("Авто-слежение")
         self.chk_watch_changes.stateChanged.connect(lambda state: self.auto_watch_changed.emit(state == 2))
 
         toggles_layout_2.addWidget(self.chk_sanitize_secrets)
+        toggles_layout_2.addWidget(self.chk_skeleton_mode)
         toggles_layout_2.addWidget(self.chk_watch_changes)
         ai_layout.addLayout(toggles_layout_2)
 
@@ -91,26 +95,30 @@ class ControlPanel(QWidget):
             self.chk_strip_comments.isChecked(),
             self.chk_compress_whitespace.isChecked(),
             self.chk_sanitize_secrets.isChecked(),
+            self.chk_skeleton_mode.isChecked(),
             self.chk_watch_changes.isChecked()
         )
 
-    def set_fast_settings(self, xml_format, strip_comments, compress_whitespace, sanitize_secrets, auto_watch):
+    def set_fast_settings(self, xml_format, strip_comments, compress_whitespace, sanitize_secrets, skeleton_mode, auto_watch):
         self.chk_xml.blockSignals(True)
         self.chk_strip_comments.blockSignals(True)
         self.chk_compress_whitespace.blockSignals(True)
         self.chk_sanitize_secrets.blockSignals(True)
+        self.chk_skeleton_mode.blockSignals(True)
         self.chk_watch_changes.blockSignals(True)
 
         self.chk_xml.setChecked(xml_format)
         self.chk_strip_comments.setChecked(strip_comments)
         self.chk_compress_whitespace.setChecked(compress_whitespace)
         self.chk_sanitize_secrets.setChecked(sanitize_secrets)
+        self.chk_skeleton_mode.setChecked(skeleton_mode)
         self.chk_watch_changes.setChecked(auto_watch)
 
         self.chk_xml.blockSignals(False)
         self.chk_strip_comments.blockSignals(False)
         self.chk_compress_whitespace.blockSignals(False)
         self.chk_sanitize_secrets.blockSignals(False)
+        self.chk_skeleton_mode.blockSignals(False)
         self.chk_watch_changes.blockSignals(False)
 
     def append_log(self, text):

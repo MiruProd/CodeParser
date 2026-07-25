@@ -4,6 +4,8 @@ from core.transformers.pipeline import TransformerPipeline
 from core.transformers.comment_stripper import CommentStripperStep
 from core.transformers.whitespace_compressor import WhitespaceCompressorStep
 from core.transformers.secret_sanitizer import SecretSanitizerStep
+from core.transformers.python_skeletonizer import PythonSkeletonizerStep
+from core.transformers.brace_skeletonizer import BraceLanguageSkeletonizerStep
 from core.services.payload_service import PayloadService
 
 
@@ -11,7 +13,7 @@ class PayloadWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, root_dir, root_node, selected_files, selected_paths, config_manager, system_prompt, xml_format, always_send_full_tree, strip_comments, compress_whitespace, sanitize_secrets=False):
+    def __init__(self, root_dir, root_node, selected_files, selected_paths, config_manager, system_prompt, xml_format, always_send_full_tree, strip_comments, compress_whitespace, sanitize_secrets=False, skeleton_mode=False):
         super().__init__()
         self.root_dir = root_dir
         self.root_node = root_node
@@ -24,11 +26,15 @@ class PayloadWorker(QThread):
         self.strip_comments = strip_comments
         self.compress_whitespace = compress_whitespace
         self.sanitize_secrets = sanitize_secrets
+        self.skeleton_mode = skeleton_mode
         self.payload_service = PayloadService()
 
     def run(self):
         try:
             pipeline = TransformerPipeline()
+            if self.skeleton_mode:
+                pipeline.add_step(PythonSkeletonizerStep())
+                pipeline.add_step(BraceLanguageSkeletonizerStep())
             if self.strip_comments and self.config_manager.comment_rules:
                 pipeline.add_step(CommentStripperStep(self.config_manager.comment_rules))
             if self.compress_whitespace:
@@ -40,6 +46,7 @@ class PayloadWorker(QThread):
                 strip_comments=self.strip_comments,
                 compress_whitespace=self.compress_whitespace,
                 sanitize_secrets=self.sanitize_secrets,
+                skeleton_mode=self.skeleton_mode,
                 xml_format=self.xml_format,
                 always_send_full_tree=self.always_send_full_tree,
                 system_prompt=self.system_prompt

@@ -71,6 +71,7 @@ class PackerController(QObject):
             self.config_manager.get("strip_comments", False),
             self.config_manager.get("compress_whitespace", False),
             self.config_manager.get("sanitize_secrets", False),
+            self.config_manager.get("skeleton_mode", False),
             self.config_manager.get("auto_watch", True)
         )
 
@@ -80,7 +81,7 @@ class PackerController(QObject):
             os.path.join(self.view.root_dir, "code_context.txt") if self.view.root_dir else ""
         )
 
-        xml, strip, compress, sanitize, auto_watch = self.view.control_panel.get_fast_settings()
+        xml, strip, compress, sanitize, skeleton, auto_watch = self.view.control_panel.get_fast_settings()
         if auto_watch and self.view.root_dir and os.path.exists(self.view.root_dir):
             self.watcher.start_watching(self.view.root_dir)
         else:
@@ -98,11 +99,12 @@ class PackerController(QObject):
             self.reload_tree()
 
     def on_fast_settings_changed(self):
-        xml, strip, compress, sanitize, auto_watch = self.view.control_panel.get_fast_settings()
+        xml, strip, compress, sanitize, skeleton, auto_watch = self.view.control_panel.get_fast_settings()
         self.config_manager.set("xml_format", xml)
         self.config_manager.set("strip_comments", strip)
         self.config_manager.set("compress_whitespace", compress)
         self.config_manager.set("sanitize_secrets", sanitize)
+        self.config_manager.set("skeleton_mode", skeleton)
         self.reload_tree()
 
     def on_auto_watch_changed(self, enabled):
@@ -182,12 +184,13 @@ class PackerController(QObject):
         if current_key and current_key in self.prompt_manager.prompts:
             system_prompt = self.prompt_manager.prompts[current_key]["prompt"]
 
-        xml_format, strip_comments, compress_whitespace, sanitize_secrets, auto_watch = self.view.control_panel.get_fast_settings()
+        xml_format, strip_comments, compress_whitespace, sanitize_secrets, skeleton_mode, auto_watch = self.view.control_panel.get_fast_settings()
 
         self.config_manager.set("xml_format", xml_format)
         self.config_manager.set("strip_comments", strip_comments)
         self.config_manager.set("compress_whitespace", compress_whitespace)
         self.config_manager.set("sanitize_secrets", sanitize_secrets)
+        self.config_manager.set("skeleton_mode", skeleton_mode)
 
         always_send_full_tree = self.config_manager.get("always_send_full_tree", True)
 
@@ -205,7 +208,8 @@ class PackerController(QObject):
             always_send_full_tree,
             strip_comments,
             compress_whitespace,
-            sanitize_secrets
+            sanitize_secrets,
+            skeleton_mode
         )
         self.payload_worker.finished.connect(lambda payload: self.on_payload_generated(payload, callback_after_generation))
         self.payload_worker.error.connect(self.on_payload_error)
