@@ -1,13 +1,12 @@
-# src/ui/workers/payload_worker.py
-
 from PyQt6.QtCore import QThread, pyqtSignal
-from core.parser import build_payload
+from core.models.project_options import TransformOptions
+from core.transformers.pipeline import TransformerPipeline
+from core.transformers.comment_stripper import CommentStripperStep
+from core.transformers.whitespace_compressor import WhitespaceCompressorStep
+from core.services.payload_service import PayloadService
+
 
 class PayloadWorker(QThread):
-    """
-    Фоновый рабочий поток для сборки и трансформации контекста.
-    Предотвращает зависание графического интерфейса при обработке больших объемов кода.
-    """
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
@@ -23,20 +22,31 @@ class PayloadWorker(QThread):
         self.always_send_full_tree = always_send_full_tree
         self.strip_comments = strip_comments
         self.compress_whitespace = compress_whitespace
+        self.payload_service = PayloadService()
 
     def run(self):
         try:
-            payload = build_payload(
+            pipeline = TransformerPipeline()
+            if self.strip_comments and self.config_manager.comment_rules:
+                pipeline.add_step(CommentStripperStep(self.config_manager.comment_rules))
+            if self.compress_whitespace:
+                pipeline.add_step(WhitespaceCompressorStep())
+
+            options = TransformOptions(
+                strip_comments=self.strip_comments,
+                compress_whitespace=self.compress_whitespace,
+                xml_format=self.xml_format,
+                always_send_full_tree=self.always_send_full_tree,
+                system_prompt=self.system_prompt
+            )
+
+            payload = self.payload_service.build_payload(
                 self.root_dir,
                 self.root_node,
                 self.selected_files,
                 self.selected_paths,
-                comment_rules=self.config_manager.comment_rules,
-                strip_comments=self.strip_comments,
-                compress_whitespace=self.compress_whitespace,
-                system_prompt=self.system_prompt,
-                xml_format=self.xml_format,
-                always_send_full_tree=self.always_send_full_tree
+                options,
+                pipeline
             )
             self.finished.emit(payload)
         except Exception as e:

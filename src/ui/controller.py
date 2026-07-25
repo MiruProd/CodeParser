@@ -1,36 +1,34 @@
-# src/ui/controller.py
-
 import os
 import sys
 from PyQt6.QtWidgets import QMessageBox, QPushButton
 from PyQt6.QtCore import QObject, QTimer
 
-from core.parser import scan_directory
+from core.models.project_options import ScanOptions
+from core.services.scanner_service import ScannerService
+from core.tokenizers.token_factory import TokenCounterFactory
 from core.watcher import ProjectWatcher
 from core.updater import UpdateCheckerThread, perform_self_update, apply_restart_and_exit
 from ui.workers import PayloadWorker
 
 
 class PackerController(QObject):
-    """
-    Контроллер приложения. Координирует работу всех виджетов,
-    управляет фоновыми потоками и выполняет бизнес-логику.
-    """
+
     def __init__(self, main_window, config_manager, prompt_manager):
         super().__init__(main_window)
         self.view = main_window
         self.config_manager = config_manager
         self.prompt_manager = prompt_manager
-        
+
         self.root_node = None
         self.payload_worker = None
         self.update_thread = None
 
-        # Инициализация наблюдателя изменений
+        self.scanner_service = ScannerService()
+        self.token_counter = TokenCounterFactory.create_counter(use_exact=True)
+
         self.watcher = ProjectWatcher()
         self.watcher.file_changed.connect(self.on_file_changed_event)
-        
-        # Таймер debounce
+
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)
         self.update_timer.timeout.connect(self.reload_tree)
@@ -39,14 +37,12 @@ class PackerController(QObject):
         self._init_view_data()
 
     def _connect_signals(self):
-        # Настройка связей сигналов виджетов с методами контроллера
         self.view.paths_panel.project_dir_changed.connect(self.on_project_dir_changed)
         self.view.paths_panel.export_path_changed.connect(self.on_export_path_changed)
-        
+
         self.view.tree_panel.selection_changed.connect(self.update_stats)
         self.view.tree_panel.refresh_requested.connect(self.reload_tree)
-        
-        # Связываем кнопку Git через поиск
+
         for btn in self.view.tree_panel.findChildren(QPushButton):
             if btn.text() == "Только Git":
                 btn.clicked.connect(self.on_git_select_requested)
@@ -55,22 +51,21 @@ class PackerController(QObject):
         self.view.control_panel.prompt_changed.connect(self.on_prompt_changed)
         self.view.control_panel.settings_changed.connect(self.on_fast_settings_changed)
         self.view.control_panel.auto_watch_changed.connect(self.on_auto_watch_changed)
-        
+
         self.view.bottom_panel.copy_clicked.connect(self.copy_to_clipboard)
         self.view.bottom_panel.save_clicked.connect(self.save_to_txt)
 
     def _init_view_data(self):
-        # Заполнение панелей начальными сохраненными данными
         self.view.paths_panel.set_project_dir(self.view.root_dir)
         self.view.paths_panel.set_export_path(
             os.path.join(self.view.root_dir, "code_context.txt") if self.view.root_dir else ""
         )
-        
+
         self.view.control_panel.populate_prompts(
-            self.prompt_manager.prompts, 
+            self.prompt_manager.prompts,
             self.config_manager.get("last_prompt_key", "just_code")
         )
-        
+
         self.view.control_panel.set_fast_settings(
             self.config_manager.get("xml_format", True),
             self.config_manager.get("strip_comments", False),
@@ -83,13 +78,13 @@ class PackerController(QObject):
         self.view.paths_panel.set_export_path(
             os.path.join(self.view.root_dir, "code_context.txt") if self.view.root_dir else ""
         )
-        
+
         xml, strip, compress, auto_watch = self.view.control_panel.get_fast_settings()
         if auto_watch and self.view.root_dir and os.path.exists(self.view.root_dir):
             self.watcher.start_watching(self.view.root_dir)
         else:
             self.watcher.stop_watching()
-            
+
         self.reload_tree()
 
     def on_export_path_changed(self, path):
@@ -137,31 +132,21 @@ class PackerController(QObject):
             return
 
         self.view.status_bar.showMessage("Сборка объектного дерева на диске...")
-        
-        active_exts = self.config_manager.get("active_extensions", [])
-        whitelist_text = ", ".join(active_exts)
 
-        excludes_list = self.config_manager.get("global_excludes", [])
-        manual_excludes_text = ", ".join(excludes_list)
-
-        disabled_rules = self.config_manager.get("gitignore_disabled_rules", [])
-        binary_exts = self.config_manager.get("binary_extensions", [])
-        lockfiles_excl = self.config_manager.get("lockfiles_excludes", [])
-
-        saved_states = self.view.tree_panel.get_check_states()
-
-        self.root_node = scan_directory(
-            root_dir=project_dir,
+        options = ScanOptions(
             use_gitignore=self.config_manager.get("use_gitignore", True),
             ignore_binary=self.config_manager.get("ignore_binary", True),
             ignore_lockfiles=self.config_manager.get("ignore_lockfiles", True),
-            whitelist_input_text=whitelist_text,
-            manual_input_text=manual_excludes_text,
+            whitelist_extensions=self.config_manager.get("active_extensions", []),
+            manual_excludes=self.config_manager.get("global_excludes", []),
             output_file_path=self.view.paths_panel.get_export_path(),
-            gitignore_disabled_rules=disabled_rules,
-            binary_extensions=binary_exts,
-            lockfiles_excludes=lockfiles_excl
+            gitignore_disabled_rules=self.config_manager.get("gitignore_disabled_rules", []),
+            binary_extensions=self.config_manager.get("binary_extensions", []),
+            lockfiles_excludes=self.config_manager.get("lockfiles_excludes", [])
         )
+
+        saved_states = self.view.tree_panel.get_check_states()
+        self.root_node = self.scanner_service.scan(project_dir, options)
 
         self.view.tree_panel.populate_tree(self.root_node, saved_states)
         self.update_stats()
@@ -173,6 +158,7 @@ class PackerController(QObject):
         selected_files = self.view.tree_panel.get_selected_files_info()
         total_size = sum(f['size'] for f in selected_files)
         total_kb = round(total_size / 1024, 1)
+
         estimated_tokens = round(total_size / 2.7)
         self.view.bottom_panel.update_stats(len(selected_files), total_kb, estimated_tokens)
 
@@ -272,8 +258,8 @@ class PackerController(QObject):
     def on_update_check_finished(self, available, version, url, silent):
         if available and url:
             reply = QMessageBox.question(
-                self.view, 
-                "Доступно обновление", 
+                self.view,
+                "Доступно обновление",
                 f"Найдена новая версия программы: {version}.\nЖелаете обновиться автоматически сейчас?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
