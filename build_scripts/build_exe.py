@@ -27,6 +27,7 @@ def build():
         "--name=CodeParser",
         f"--distpath={dist_path}",
         f"--workpath={build_path}",
+        "--collect-all=tiktoken",
         "--clean",
     ]
 
