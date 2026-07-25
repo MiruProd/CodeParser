@@ -1,12 +1,8 @@
-# src/ui/widgets/control_panel.py
-
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QCheckBox, QGroupBox, QTextEdit
 from PyQt6.QtCore import pyqtSignal
 
+
 class ControlPanel(QWidget):
-    """
-    Панель для управления параметрами контекста ИИ, выбора скиллов-инструкций и вывода логов работы.
-    """
     prompt_changed = pyqtSignal()
     settings_changed = pyqtSignal()
     add_prompt_clicked = pyqtSignal()
@@ -39,24 +35,31 @@ class ControlPanel(QWidget):
         prompt_selector_layout.addWidget(btn_edit_prompt)
         ai_layout.addLayout(prompt_selector_layout)
 
-        toggles_layout = QHBoxLayout()
+        toggles_layout_1 = QHBoxLayout()
         self.chk_xml = QCheckBox("Формат XML")
         self.chk_xml.stateChanged.connect(lambda: self.settings_changed.emit())
-        
+
         self.chk_strip_comments = QCheckBox("Без комментариев")
         self.chk_strip_comments.stateChanged.connect(lambda: self.settings_changed.emit())
 
-        self.chk_compress_whitespace = QCheckBox("Сжать код (минимизировать)")
+        self.chk_compress_whitespace = QCheckBox("Сжать код")
         self.chk_compress_whitespace.stateChanged.connect(lambda: self.settings_changed.emit())
+
+        toggles_layout_1.addWidget(self.chk_xml)
+        toggles_layout_1.addWidget(self.chk_strip_comments)
+        toggles_layout_1.addWidget(self.chk_compress_whitespace)
+        ai_layout.addLayout(toggles_layout_1)
+
+        toggles_layout_2 = QHBoxLayout()
+        self.chk_sanitize_secrets = QCheckBox("Скрыть секреты")
+        self.chk_sanitize_secrets.stateChanged.connect(lambda: self.settings_changed.emit())
 
         self.chk_watch_changes = QCheckBox("Авто-слежение")
         self.chk_watch_changes.stateChanged.connect(lambda state: self.auto_watch_changed.emit(state == 2))
 
-        toggles_layout.addWidget(self.chk_xml)
-        toggles_layout.addWidget(self.chk_strip_comments)
-        toggles_layout.addWidget(self.chk_compress_whitespace)
-        toggles_layout.addWidget(self.chk_watch_changes)
-        ai_layout.addLayout(toggles_layout)
+        toggles_layout_2.addWidget(self.chk_sanitize_secrets)
+        toggles_layout_2.addWidget(self.chk_watch_changes)
+        ai_layout.addLayout(toggles_layout_2)
 
         layout.addWidget(ai_group)
 
@@ -65,7 +68,7 @@ class ControlPanel(QWidget):
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         log_layout.addWidget(self.log_output)
-        
+
         layout.addWidget(log_group, 1)
 
     def populate_prompts(self, prompts_dict, last_prompt_key):
@@ -73,7 +76,7 @@ class ControlPanel(QWidget):
         self.combo_prompts.clear()
         for key, value in prompts_dict.items():
             self.combo_prompts.addItem(value["title"], key)
-        
+
         index = self.combo_prompts.findData(last_prompt_key)
         if index >= 0:
             self.combo_prompts.setCurrentIndex(index)
@@ -87,23 +90,27 @@ class ControlPanel(QWidget):
             self.chk_xml.isChecked(),
             self.chk_strip_comments.isChecked(),
             self.chk_compress_whitespace.isChecked(),
+            self.chk_sanitize_secrets.isChecked(),
             self.chk_watch_changes.isChecked()
         )
 
-    def set_fast_settings(self, xml_format, strip_comments, compress_whitespace, auto_watch):
+    def set_fast_settings(self, xml_format, strip_comments, compress_whitespace, sanitize_secrets, auto_watch):
         self.chk_xml.blockSignals(True)
         self.chk_strip_comments.blockSignals(True)
         self.chk_compress_whitespace.blockSignals(True)
+        self.chk_sanitize_secrets.blockSignals(True)
         self.chk_watch_changes.blockSignals(True)
 
         self.chk_xml.setChecked(xml_format)
         self.chk_strip_comments.setChecked(strip_comments)
         self.chk_compress_whitespace.setChecked(compress_whitespace)
+        self.chk_sanitize_secrets.setChecked(sanitize_secrets)
         self.chk_watch_changes.setChecked(auto_watch)
 
         self.chk_xml.blockSignals(False)
         self.chk_strip_comments.blockSignals(False)
         self.chk_compress_whitespace.blockSignals(False)
+        self.chk_sanitize_secrets.blockSignals(False)
         self.chk_watch_changes.blockSignals(False)
 
     def append_log(self, text):
