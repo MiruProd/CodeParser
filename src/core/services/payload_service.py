@@ -50,9 +50,9 @@ class PayloadService:
         tree_lines.extend(self.generate_ascii_tree(root_node, tree_paths))
         ascii_tree = "\n".join(tree_lines)
 
-        cdata_closer = "]]" + "]]><![CDATA[>"
-        cdata_find = "]]" + "]]><![CDATA[>"
-        cdata_replace = "]]" + "]]" + "]]><![CDATA[><![CDATA[>"
+        cdata_closer = "]]>"
+        cdata_find = "]]>"
+        cdata_replace = "]]>]]><![CDATA["
 
         if options.xml_format:
             lines = ["<repository_context>\n"]

@@ -41,6 +41,10 @@ class CommentStripperStep(ITransformerStep):
                         if not pattern:
                             continue
 
+                        # Преобразуем многострочные блоки комментариев в [\s\S], избегая использования глобального re.DOTALL,
+                        # чтобы однострочные комментарии (// или --) не уничтожали код до конца файла.
+                        safe_pattern = pattern.replace(r'/\*.*?\*/', r'/\*[\s\S]*?\*/').replace(r'<!--.*?-->', r'<!--[\s\S]*?-->')
+
                         def replace_standard(match):
                             if match.group(1):
                                 return match.group(1)
@@ -48,7 +52,7 @@ class CommentStripperStep(ITransformerStep):
                                 return match.group(2)
                             return ""
 
-                        return re.sub(pattern, replace_standard, text, flags=re.MULTILINE | re.DOTALL)
+                        return re.sub(safe_pattern, replace_standard, text, flags=re.MULTILINE)
         except Exception as e:
             print(f"Error stripping comments for {ext}: {e}")
 

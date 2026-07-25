@@ -45,14 +45,21 @@ class PackerController(QObject):
         self.update_timer.setSingleShot(True)
         self.update_timer.timeout.connect(self.reload_tree)
 
+        self.stats_timer = QTimer()
+        self.stats_timer.setSingleShot(True)
+        self.stats_timer.timeout.connect(self.update_stats)
+
         self._connect_signals()
         self._init_view_data()
+
+        if self.config_manager.get("auto_check_updates", True):
+            self.check_for_updates(silent=True)
 
     def _connect_signals(self):
         self.view.paths_panel.project_dir_changed.connect(self.on_project_dir_changed)
         self.view.paths_panel.export_path_changed.connect(self.on_export_path_changed)
 
-        self.view.tree_panel.selection_changed.connect(self.update_stats)
+        self.view.tree_panel.selection_changed.connect(lambda: self.stats_timer.start(200))
         self.view.tree_panel.refresh_requested.connect(self.reload_tree)
 
         for btn in self.view.tree_panel.findChildren(QPushButton):
@@ -64,6 +71,8 @@ class PackerController(QObject):
         self.view.control_panel.prompt_changed.connect(self.on_prompt_changed)
         self.view.control_panel.settings_changed.connect(self.on_fast_settings_changed)
         self.view.control_panel.auto_watch_changed.connect(self.on_auto_watch_changed)
+        self.view.control_panel.add_prompt_clicked.connect(self.view.create_new_prompt)
+        self.view.control_panel.edit_prompt_clicked.connect(self.view.edit_current_prompt)
 
         self.view.bottom_panel.copy_clicked.connect(self.copy_to_clipboard)
         self.view.bottom_panel.save_clicked.connect(self.save_to_txt)

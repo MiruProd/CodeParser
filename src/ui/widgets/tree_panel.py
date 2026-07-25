@@ -28,7 +28,6 @@ class TreePanel(QWidget):
         toolbar.addWidget(btn_uncheck_all)
 
         btn_git_select = QPushButton("Только Git")
-        btn_git_select.clicked.connect(self._on_git_select_clicked)
         toolbar.addWidget(btn_git_select)
 
         btn_deps_select = QPushButton("Импорты")
@@ -73,9 +72,6 @@ class TreePanel(QWidget):
         self._update_parent_state(item)
         self.tree_widget.blockSignals(False)
         self.selection_changed.emit()
-
-    def _on_git_select_clicked(self):
-        pass
 
     def check_all_items(self, check=True):
         if self.tree_widget.topLevelItemCount() == 0:

@@ -6,7 +6,7 @@ from typing import Set
 class DependencyService:
 
     PYTHON_IMPORT_REGEX = re.compile(
-        r'^\s*(?:from|import)\s+([a-zA-Z0-9_.]+)', re.MULTILINE
+        r'^\s*(?:from|import)\s+(\.?\.?[a-zA-Z0-9_.]+)', re.MULTILINE
     )
     JS_TS_IMPORT_REGEX = re.compile(
         r'(?:import\s+.*?\s+from\s+["\'](\..*?)["\']|require\(["\'](\..*?)["\']\))'
@@ -39,14 +39,41 @@ class DependencyService:
 
         if ext == '.py':
             matches = self.PYTHON_IMPORT_REGEX.findall(content)
-            for module_str in matches:
-                rel_candidate_1 = module_str.replace('.', '/') + '.py'
-                rel_candidate_2 = module_str.replace('.', '/') + '/__init__.py'
+            possible_roots = [
+                root_dir,
+                os.path.join(root_dir, 'src'),
+                target_dir
+            ]
 
-                if os.path.exists(os.path.join(root_dir, rel_candidate_1)):
-                    found_rel_paths.add(rel_candidate_1)
-                elif os.path.exists(os.path.join(root_dir, rel_candidate_2)):
-                    found_rel_paths.add(rel_candidate_2)
+            for raw_import in matches:
+                # Обработка относительных импортов (начинающихся с точек)
+                dot_count = len(raw_import) - len(raw_import.lstrip('.'))
+                module_part = raw_import.lstrip('.')
+
+                if dot_count > 0:
+                    base_dir = target_dir
+                    for _ in range(dot_count - 1):
+                        base_dir = os.path.dirname(base_dir)
+                    search_bases = [base_dir]
+                else:
+                    search_bases = possible_roots
+
+                subpath = module_part.replace('.', '/') if module_part else ''
+
+                for base in search_bases:
+                    if subpath:
+                        cand1 = os.path.join(base, f"{subpath}.py")
+                        cand2 = os.path.join(base, subpath, "__init__.py")
+                    else:
+                        cand1 = ""
+                        cand2 = os.path.join(base, "__init__.py")
+
+                    if cand1 and os.path.isfile(cand1):
+                        found_rel_paths.add(os.path.relpath(cand1, root_dir).replace('\\', '/'))
+                        break
+                    elif cand2 and os.path.isfile(cand2):
+                        found_rel_paths.add(os.path.relpath(cand2, root_dir).replace('\\', '/'))
+                        break
 
         elif ext in ('.js', '.jsx', '.ts', '.tsx'):
             raw_matches = self.JS_TS_IMPORT_REGEX.findall(content)
@@ -68,9 +95,9 @@ class DependencyService:
                 test_path_1 = os.path.join(target_dir, header_file)
                 test_path_2 = os.path.join(root_dir, header_file)
 
-                if os.path.exists(test_path_1):
+                if os.path.exists(test_path_1) and os.path.isfile(test_path_1):
                     found_rel_paths.add(os.path.relpath(test_path_1, root_dir).replace('\\', '/'))
-                elif os.path.exists(test_path_2):
+                elif os.path.exists(test_path_2) and os.path.isfile(test_path_2):
                     found_rel_paths.add(os.path.relpath(test_path_2, root_dir).replace('\\', '/'))
 
         elif ext == '.rs':
@@ -79,9 +106,9 @@ class DependencyService:
                 candidate_1 = os.path.join(target_dir, f"{mod_name}.rs")
                 candidate_2 = os.path.join(target_dir, mod_name, "mod.rs")
 
-                if os.path.exists(candidate_1):
+                if os.path.exists(candidate_1) and os.path.isfile(candidate_1):
                     found_rel_paths.add(os.path.relpath(candidate_1, root_dir).replace('\\', '/'))
-                elif os.path.exists(candidate_2):
+                elif os.path.exists(candidate_2) and os.path.isfile(candidate_2):
                     found_rel_paths.add(os.path.relpath(candidate_2, root_dir).replace('\\', '/'))
 
         return found_rel_paths

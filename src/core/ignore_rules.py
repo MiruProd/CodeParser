@@ -1,9 +1,8 @@
-# src/core/ignore_rules.py
-
 import os
 import fnmatch
 
-def parse_gitignore(gitignore_path):
+
+def parse_gitignore(gitignore_path: str) -> list:
     rules = []
     if not os.path.exists(gitignore_path):
         return rules
@@ -15,16 +14,14 @@ def parse_gitignore(gitignore_path):
                     continue
                 rules.append(line)
     except Exception:
-        # Игнорируем ошибки доступа, так как наличие .gitignore опционально
         pass
     return rules
 
-def is_ignored(rel_path, gitignore_rules, manual_excludes, is_dir=False):
-    # Приведение к Unix-формату для кроссплатформенного сопоставления путей
+
+def is_ignored(rel_path: str, gitignore_rules: list, manual_excludes: list, is_dir: bool = False) -> bool:
     unix_path = rel_path.replace('\\', '/')
     parts = unix_path.split('/')
-    
-    # 1. Проверка пользовательских исключений
+
     for pattern in manual_excludes:
         pattern = pattern.strip()
         if not pattern:
@@ -33,22 +30,16 @@ def is_ignored(rel_path, gitignore_rules, manual_excludes, is_dir=False):
             return True
         if fnmatch.fnmatch(unix_path, pattern) or fnmatch.fnmatch(parts[-1], pattern):
             return True
-            
-    # 2. Эмуляция логики Git без привлечения тяжелых сторонних библиотек (например, pathspec)
+
     for rule in gitignore_rules:
         is_dir_rule = rule.endswith('/')
         if is_dir_rule and not is_dir:
             continue
-            
+
         clean_rule = rule.rstrip('/')
-        
-        # Если в правиле есть слэш, сопоставляем от корня, иначе проверяем по сегментам
+
         if '/' in clean_rule:
-            if clean_rule.startswith('/'):
-                anchored_rule = clean_rule[1:]
-            else:
-                anchored_rule = clean_rule
-            
+            anchored_rule = clean_rule[1:] if clean_rule.startswith('/') else clean_rule
             if fnmatch.fnmatch(unix_path, anchored_rule) or unix_path.startswith(anchored_rule + '/'):
                 return True
         else:
@@ -57,5 +48,5 @@ def is_ignored(rel_path, gitignore_rules, manual_excludes, is_dir=False):
                     return True
             if fnmatch.fnmatch(unix_path, clean_rule):
                 return True
-                
+
     return False
