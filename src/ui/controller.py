@@ -3,10 +3,17 @@ import sys
 from PyQt6.QtWidgets import QMessageBox, QPushButton
 from PyQt6.QtCore import QObject, QTimer
 
-from core.models.project_options import ScanOptions
+from core.models.project_options import ScanOptions, TransformOptions
 from core.services.scanner_service import ScannerService
+from core.services.payload_service import PayloadService
 from core.services.git_service import GitService
 from core.services.dependency_service import DependencyService
+from core.transformers.pipeline import TransformerPipeline
+from core.transformers.comment_stripper import CommentStripperStep
+from core.transformers.whitespace_compressor import WhitespaceCompressorStep
+from core.transformers.secret_sanitizer import SecretSanitizerStep
+from core.transformers.python_skeletonizer import PythonSkeletonizerStep
+from core.transformers.brace_skeletonizer import BraceLanguageSkeletonizerStep
 from core.tokenizers.token_factory import TokenCounterFactory
 from core.watcher import ProjectWatcher
 from core.updater import UpdateCheckerThread, perform_self_update, apply_restart_and_exit
@@ -26,6 +33,7 @@ class PackerController(QObject):
         self.update_thread = None
 
         self.scanner_service = ScannerService()
+        self.payload_service = PayloadService()
         self.git_service = GitService()
         self.dependency_service = DependencyService()
         self.token_counter = TokenCounterFactory.create_counter(use_exact=True)
@@ -187,8 +195,57 @@ class PackerController(QObject):
         total_size = sum(f['size'] for f in selected_files)
         total_kb = round(total_size / 1024, 1)
 
-        estimated_tokens = self.token_counter.count_tokens("a" * total_size)
-        self.view.bottom_panel.update_stats(len(selected_files), total_kb, estimated_tokens)
+        if not selected_files or not self.root_node:
+            self.view.bottom_panel.update_stats(len(selected_files), total_kb, 0)
+            return
+
+        selected_paths = set()
+        for f in selected_files:
+            rel_path = f['rel_path']
+            selected_paths.add(rel_path)
+            parts = rel_path.split('/')
+            for i in range(1, len(parts)):
+                selected_paths.add("/".join(parts[:i]))
+
+        current_key = self.view.control_panel.get_current_prompt_key()
+        system_prompt = ""
+        if current_key and current_key in self.prompt_manager.prompts:
+            system_prompt = self.prompt_manager.prompts[current_key]["prompt"]
+
+        xml_format, strip_comments, compress_whitespace, sanitize_secrets, skeleton_mode, auto_watch = self.view.control_panel.get_fast_settings()
+
+        pipeline = TransformerPipeline()
+        if skeleton_mode:
+            pipeline.add_step(PythonSkeletonizerStep())
+            pipeline.add_step(BraceLanguageSkeletonizerStep())
+        if strip_comments and self.config_manager.comment_rules:
+            pipeline.add_step(CommentStripperStep(self.config_manager.comment_rules))
+        if compress_whitespace:
+            pipeline.add_step(WhitespaceCompressorStep())
+        if sanitize_secrets:
+            pipeline.add_step(SecretSanitizerStep())
+
+        options = TransformOptions(
+            strip_comments=strip_comments,
+            compress_whitespace=compress_whitespace,
+            sanitize_secrets=sanitize_secrets,
+            skeleton_mode=skeleton_mode,
+            xml_format=xml_format,
+            always_send_full_tree=self.config_manager.get("always_send_full_tree", True),
+            system_prompt=system_prompt
+        )
+
+        payload = self.payload_service.build_payload(
+            self.view.paths_panel.get_project_dir(),
+            self.root_node,
+            selected_files,
+            selected_paths,
+            options,
+            pipeline
+        )
+
+        exact_tokens = self.token_counter.count_tokens(payload)
+        self.view.bottom_panel.update_stats(len(selected_files), total_kb, exact_tokens)
 
     def start_payload_generation(self, callback_after_generation):
         if self.payload_worker and self.payload_worker.isRunning():

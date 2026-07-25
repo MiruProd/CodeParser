@@ -9,7 +9,9 @@ class TokenCounterFactory:
         if use_exact:
             try:
                 from core.tokenizers.tiktoken_counter import TiktokenCounter
-                return TiktokenCounter(encoding_name=encoding_name)
-            except Exception:
-                pass
+                counter = TiktokenCounter(encoding_name=encoding_name)
+                print(f"[TokenCounterFactory] Успешно загружен TiktokenCounter ({encoding_name})")
+                return counter
+            except Exception as e:
+                print(f"[TokenCounterFactory] Tiktoken недоступен ({e}). Использован фоллбэк ApproximateTokenCounter.")
         return ApproximateTokenCounter()

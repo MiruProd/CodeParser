@@ -5,12 +5,12 @@ from core.interfaces.transformer_step import ITransformerStep
 class SecretSanitizerStep(ITransformerStep):
 
     SECRET_PATTERNS = [
-        (r'sk-[a-zA-Z0-9T3BlbkFJ]{20,}', '[REDACTED_OPENAI_KEY]'),
+        (r'sk-[a-zA-Z0-9]{20,}', '[REDACTED_OPENAI_KEY]'),
         (r'ghp_[a-zA-Z0-9]{36}', '[REDACTED_GITHUB_TOKEN]'),
         (r'xox[b-aprs]-[a-zA-Z0-9]{10,}', '[REDACTED_SLACK_TOKEN]'),
-        (r'AKIA[0-9A-Z]{16}', '[REDACTED_AWS_KEY]'),
-        (r'-----BEGIN (RSA|EC|PGP|PRIVATE) KEY-----[\s\S]*?-----END \1 KEY-----', '[REDACTED_PRIVATE_KEY]'),
-        (r'(?i)(api[_-]?key|secret|password|bearer)\s*[:=]\s*["\']([^"\']{8,})["\']', r'\1: "[REDACTED_SECRET]"')
+        (r'\bAKIA[0-9A-Z]{16}\b', '[REDACTED_AWS_KEY]'),
+        (r'-----BEGIN [A-Z ]+ PRIVATE KEY-----[\r\n][\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----', '[REDACTED_PRIVATE_KEY]'),
+        (r'(?i)^(\s*(?:[\w_.]*?(?:api[_-]?key|secret|password|token|bearer)[\w_.]*?)\s*[:=]\s*)(["\'])(?:(?!\2).){8,}\2', r'\1\2[REDACTED_SECRET]\2')
     ]
 
     def transform(self, text: str, ext: str) -> str:
@@ -19,6 +19,12 @@ class SecretSanitizerStep(ITransformerStep):
 
         sanitized = text
         for pattern, replacement in self.SECRET_PATTERNS:
-            sanitized = re.sub(pattern, replacement, sanitized)
+            try:
+                if pattern.startswith('(?i)^'):
+                    sanitized = re.sub(pattern, replacement, sanitized, flags=re.MULTILINE)
+                else:
+                    sanitized = re.sub(pattern, replacement, sanitized)
+            except Exception:
+                pass
 
         return sanitized
