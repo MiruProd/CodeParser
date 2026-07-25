@@ -1,16 +1,15 @@
-# build_scripts/build_exe.py
-
 import os
 import sys
+
 
 def build():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(script_dir)
-    
+
     entry_point = os.path.join(root_dir, "src", "main.py")
     dist_path = os.path.join(root_dir, "dist")
     build_path = os.path.join(root_dir, "build")
-    icon_png = os.path.join(root_dir, "src", "ui", "icon.png")
+    icon_png = os.path.join(root_dir, "resources", "icons", "icon.png")
 
     try:
         import PyInstaller
@@ -20,7 +19,7 @@ def build():
         sys.exit(1)
 
     print("--- Starting CodeParser executable build ---")
-    
+
     args = [
         entry_point,
         "--onefile",
@@ -31,21 +30,16 @@ def build():
         "--clean",
     ]
 
-    # Принудительно упаковываем библиотеки Microsoft Visual C++ Runtime (VCRuntime) вовнутрь EXE.
-    # Это полностью решает проблему "Failed to load Python DLL" на компьютерах без установленного MSVC Redistributable.
     if sys.platform == "win32":
         sys32_dir = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32")
         for dll_name in ["vcruntime140.dll", "vcruntime140_1.dll"]:
             dll_path = os.path.join(sys32_dir, dll_name)
             if os.path.exists(dll_path):
-                # На Windows PyInstaller требует разделения путей точкой с запятой ';'
                 args.append(f"--add-binary={dll_path};.")
                 print(f"Config: Bundling MSVC runtime DLL: {dll_name}")
             else:
                 print(f"Warning: System DLL not found: {dll_path}")
 
-    # Упаковываем всю корневую папку resources со всеми конфигурациями (JSON) вовнутрь исполняемого файла.
-    # Используем os.pathsep для поддержки кроссплатформенной сборки (разделитель путей)
     resources_src = os.path.join(root_dir, "resources")
     if os.path.exists(resources_src):
         args.append(f"--add-data={resources_src}{os.pathsep}resources")
@@ -65,9 +59,10 @@ def build():
 
     import PyInstaller.__main__
     PyInstaller.__main__.run(args)
-    
+
     print("\n--- Compilation process finished! ---")
     print(f"Output file: {os.path.join(dist_path, 'CodeParser.exe')}")
+
 
 if __name__ == "__main__":
     build()
