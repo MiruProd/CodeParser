@@ -5,6 +5,8 @@ from PyQt6.QtCore import QObject, QTimer
 
 from core.models.project_options import ScanOptions
 from core.services.scanner_service import ScannerService
+from core.services.git_service import GitService
+from core.services.dependency_service import DependencyService
 from core.tokenizers.token_factory import TokenCounterFactory
 from core.watcher import ProjectWatcher
 from core.updater import UpdateCheckerThread, perform_self_update, apply_restart_and_exit
@@ -24,6 +26,8 @@ class PackerController(QObject):
         self.update_thread = None
 
         self.scanner_service = ScannerService()
+        self.git_service = GitService()
+        self.dependency_service = DependencyService()
         self.token_counter = TokenCounterFactory.create_counter(use_exact=True)
 
         self.watcher = ProjectWatcher()
@@ -46,7 +50,8 @@ class PackerController(QObject):
         for btn in self.view.tree_panel.findChildren(QPushButton):
             if btn.text() == "Только Git":
                 btn.clicked.connect(self.on_git_select_requested)
-                break
+            elif btn.text() == "Импорты":
+                btn.clicked.connect(self.on_deps_select_requested)
 
         self.view.control_panel.prompt_changed.connect(self.on_prompt_changed)
         self.view.control_panel.settings_changed.connect(self.on_fast_settings_changed)
@@ -120,12 +125,31 @@ class PackerController(QObject):
 
     def on_git_select_requested(self):
         project_dir = self.view.paths_panel.get_project_dir()
-        success, msg = self.view.tree_panel.select_git_modified(project_dir)
+        success, msg, modified_files = self.git_service.get_modified_files(project_dir)
         if success:
+            self.view.tree_panel.check_all_items(False)
+            self.view.tree_panel.select_specific_paths(modified_files)
             self.view.status_bar.showMessage(msg)
             self.view.control_panel.append_log(f"Лог: {msg}")
         else:
-            QMessageBox.warning(self.view, "Ошибка Git", msg)
+            QMessageBox.warning(self.view, "Git Status", msg)
+
+    def on_deps_select_requested(self):
+        project_dir = self.view.paths_panel.get_project_dir()
+        target_rel = self.view.tree_panel.get_current_focused_rel_path()
+        if not target_rel:
+            QMessageBox.information(self.view, "Импорты", "Выберите файл в дереве для анализа его импортов.")
+            return
+
+        deps = self.dependency_service.trace_dependencies(project_dir, target_rel)
+        if not deps:
+            QMessageBox.information(self.view, "Импорты", f"Для файла '{target_rel}' не найдено локальных импортов.")
+            return
+
+        self.view.tree_panel.select_specific_paths(deps)
+        msg = f"Выделено импортируемых файлов ({len(deps)}) для '{target_rel}'"
+        self.view.status_bar.showMessage(msg)
+        self.view.control_panel.append_log(f"Лог: {msg}")
 
     def on_file_changed_event(self):
         self.update_timer.start(1500)

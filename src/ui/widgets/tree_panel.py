@@ -1,14 +1,9 @@
-# src/ui/widgets/tree_panel.py
-
 import os
-import subprocess
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView, QStyle
 from PyQt6.QtCore import Qt, pyqtSignal
 
+
 class TreePanel(QWidget):
-    """
-    Интерактивная панель со структурой проекта, строкой поиска и инструментами выделения.
-    """
     selection_changed = pyqtSignal()
     refresh_requested = pyqtSignal()
     log_message = pyqtSignal(str)
@@ -23,7 +18,7 @@ class TreePanel(QWidget):
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("Структура для экспорта:"))
-        
+
         btn_check_all = QPushButton("Выделить всё")
         btn_check_all.clicked.connect(lambda: self.check_all_items(True))
         toolbar.addWidget(btn_check_all)
@@ -36,6 +31,10 @@ class TreePanel(QWidget):
         btn_git_select.clicked.connect(self._on_git_select_clicked)
         toolbar.addWidget(btn_git_select)
 
+        btn_deps_select = QPushButton("Импорты")
+        btn_deps_select.setToolTip("Выделить все импортируемые файлы для выбранного")
+        toolbar.addWidget(btn_deps_select)
+
         btn_expand = QPushButton("Развернуть")
         btn_expand.clicked.connect(lambda: self.tree_widget.expandAll())
         toolbar.addWidget(btn_expand)
@@ -47,7 +46,7 @@ class TreePanel(QWidget):
         btn_refresh = QPushButton("Обновить")
         btn_refresh.clicked.connect(self.refresh_requested.emit)
         toolbar.addWidget(btn_refresh)
-        
+
         layout.addLayout(toolbar)
 
         search_layout = QHBoxLayout()
@@ -62,7 +61,7 @@ class TreePanel(QWidget):
         self.tree_widget.setHeaderLabels(["Файлы и каталоги", "Размер"])
         self.tree_widget.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree_widget.itemChanged.connect(self._on_item_changed)
-        
+
         layout.addWidget(self.tree_widget)
 
     def _on_item_changed(self, item, column):
@@ -76,7 +75,6 @@ class TreePanel(QWidget):
         self.selection_changed.emit()
 
     def _on_git_select_clicked(self):
-        # Будет обработано в контроллере главного окна, так как нужен путь root_dir
         pass
 
     def check_all_items(self, check=True):
@@ -100,25 +98,25 @@ class TreePanel(QWidget):
         parent = item.parent()
         if not parent:
             return
-        
+
         checked_count = 0
         unchecked_count = 0
         child_count = parent.childCount()
-        
+
         for i in range(child_count):
             state = parent.child(i).checkState(0)
             if state == Qt.CheckState.Checked:
                 checked_count += 1
             elif state == Qt.CheckState.Unchecked:
                 unchecked_count += 1
-                
+
         if checked_count == child_count:
             parent.setCheckState(0, Qt.CheckState.Checked)
         elif unchecked_count == child_count:
             parent.setCheckState(0, Qt.CheckState.Unchecked)
         else:
             parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-            
+
         self._update_parent_state(parent)
 
     def get_check_states(self) -> dict:
@@ -145,18 +143,27 @@ class TreePanel(QWidget):
 
         files = []
         state = item.checkState(0)
-        
+
         if state == Qt.CheckState.Unchecked:
             return []
 
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data and not data.get('is_dir', False) and state == Qt.CheckState.Checked:
             files.append(data)
-        
+
         for i in range(item.childCount()):
             files.extend(self.get_selected_files_info(item.child(i)))
-            
+
         return files
+
+    def get_current_focused_rel_path(self) -> str:
+        current_item = self.tree_widget.currentItem()
+        if not current_item:
+            return ""
+        data = current_item.data(0, Qt.ItemDataRole.UserRole)
+        if data and not data.get('is_dir', False):
+            return data.get('rel_path', '')
+        return ""
 
     def populate_tree(self, root_node, saved_states=None):
         self.tree_widget.blockSignals(True)
@@ -168,19 +175,19 @@ class TreePanel(QWidget):
         root_item = QTreeWidgetItem(self.tree_widget)
         root_item.setText(0, root_node.name)
         root_item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
-        
+
         root_state = Qt.CheckState.Checked
         if saved_states and root_node.rel_path in saved_states:
             root_state = saved_states[root_node.rel_path]
         root_item.setCheckState(0, root_state)
-        
+
         root_item.setData(0, Qt.ItemDataRole.UserRole, {
             'full_path': root_node.full_path,
             'rel_path': root_node.rel_path,
             'is_dir': True,
             'size': 0
         })
-        
+
         self._populate_ui_tree(root_item, root_node, saved_states)
         root_item.setExpanded(True)
         self.tree_widget.blockSignals(False)
@@ -195,12 +202,12 @@ class TreePanel(QWidget):
         for child in model_node.children:
             item = QTreeWidgetItem(parent_item)
             item.setText(0, child.name)
-            
+
             state = Qt.CheckState.Checked
             if child.rel_path in saved_states:
                 state = saved_states[child.rel_path]
             item.setCheckState(0, state)
-            
+
             if child.is_dir:
                 item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
                 self._populate_ui_tree(item, child, saved_states)
@@ -220,7 +227,7 @@ class TreePanel(QWidget):
         text = text.lower().strip()
         if self.tree_widget.topLevelItemCount() == 0:
             return
-        
+
         self.tree_widget.blockSignals(True)
         root_item = self.tree_widget.topLevelItem(0)
         self._filter_item_recursive(root_item, text)
@@ -238,58 +245,31 @@ class TreePanel(QWidget):
 
         is_visible = match_self or any_child_visible
         item.setHidden(not is_visible)
-        
+
         if text and any_child_visible:
             item.setExpanded(True)
-            
+
         return is_visible
 
-    def select_git_modified(self, root_dir) -> tuple:
-        if not root_dir or not os.path.exists(root_dir):
-            return False, "Папка проекта не найдена."
-        try:
-            res = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=root_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-            )
-            modified_files = set()
-            for line in res.stdout.splitlines():
-                if len(line) > 3:
-                    path_part = line[3:].strip()
-                    if " -> " in path_part:
-                        path_part = path_part.split(" -> ")[-1].strip()
-                    path_part = path_part.strip('"\'')
-                    normalized_path = path_part.replace('\\', '/')
-                    modified_files.add(normalized_path)
-            
-            if not modified_files:
-                return False, "Нет измененных файлов в репозитории Git."
+    def select_specific_paths(self, target_paths: set):
+        if not target_paths or self.tree_widget.topLevelItemCount() == 0:
+            return
 
-            self.check_all_items(False)
-            
-            self.tree_widget.blockSignals(True)
-            root_item = self.tree_widget.topLevelItem(0)
-            self._check_git_items_recursive(root_item, modified_files)
-            self.tree_widget.blockSignals(False)
-            self.selection_changed.emit()
-            return True, f"Успешно выделено файлов Git: {len(modified_files)}"
-        except Exception as e:
-            return False, f"Ошибка выполнения Git команды: {e}"
+        self.tree_widget.blockSignals(True)
+        root_item = self.tree_widget.topLevelItem(0)
+        self._check_paths_recursive(root_item, target_paths)
+        self.tree_widget.blockSignals(False)
+        self.selection_changed.emit()
 
-    def _check_git_items_recursive(self, item, modified_files):
+    def _check_paths_recursive(self, item, target_paths: set):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data:
             rel_path = data.get('rel_path', '')
             is_dir = data.get('is_dir', False)
-            
-            if not is_dir:
-                if rel_path in modified_files:
-                    item.setCheckState(0, Qt.CheckState.Checked)
-                    self._update_parent_state(item)
-            
+
+            if not is_dir and rel_path in target_paths:
+                item.setCheckState(0, Qt.CheckState.Checked)
+                self._update_parent_state(item)
+
         for i in range(item.childCount()):
-            self._check_git_items_recursive(item.child(i), modified_files)
+            self._check_paths_recursive(item.child(i), target_paths)
